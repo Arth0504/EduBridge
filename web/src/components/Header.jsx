@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Server, Activity } from 'lucide-react';
+import { Server, User, LogOut } from 'lucide-react';
 import axios from 'axios';
+import { useAuth } from '../context/AuthContext';
 
 export default function Header() {
   const [backendStatus, setBackendStatus] = useState('Checking...');
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     axios
@@ -16,7 +18,7 @@ export default function Header() {
         }
       })
       .catch(() => {
-        setBackendStatus('Offline (Start Backend)');
+        setBackendStatus('Offline');
       });
   }, []);
 
@@ -26,15 +28,38 @@ export default function Header() {
         <h2 style={{ fontSize: '1.1rem', fontWeight: 600 }}>Administration Console</h2>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
         <div className="status-indicator">
           <span className="dot" style={{ backgroundColor: backendStatus === 'Operational' ? '#10b981' : '#f59e0b' }}></span>
           <Server size={14} />
-          <span>Backend API: {backendStatus}</span>
+          <span>API: {backendStatus}</span>
         </div>
-        <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-          Role: <strong style={{ color: '#ffffff' }}>SuperAdmin</strong>
-        </div>
+
+        {user ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#ffffff' }}>
+                {user.fullName}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#818cf8', fontWeight: 600, textTransform: 'uppercase' }}>
+                {user.role}
+              </div>
+            </div>
+
+            <button
+              onClick={logout}
+              title="Sign Out"
+              style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 600 }}
+            >
+              <LogOut size={14} />
+              <span>Logout</span>
+            </button>
+          </div>
+        ) : (
+          <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+            Guest Session
+          </div>
+        )}
       </div>
     </header>
   );

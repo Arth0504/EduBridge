@@ -7,6 +7,7 @@ const morgan = require('morgan');
 const { connectDB } = require('./config/db');
 const logger = require('./utils/logger');
 const healthRoutes = require('./routes/health.routes');
+const authRoutes = require('./routes/auth.routes');
 const institutionMiddleware = require('./middleware/institution.middleware');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
@@ -25,6 +26,9 @@ app.use(institutionMiddleware);
 
 // API Routes
 app.use('/api', healthRoutes);
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/auth', authRoutes);
+
 
 // Root welcome route
 app.get('/', (req, res) => {

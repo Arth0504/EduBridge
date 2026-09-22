@@ -8,20 +8,36 @@ import {
   SafeAreaView,
   StatusBar,
   Alert,
-  ScrollView
+  ScrollView,
+  ActivityIndicator
 } from 'react-native';
+import { useAuth } from '../context/AuthContext';
 
 export default function RegisterScreen({ navigation }) {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('Student');
+  const [role, setRole] = useState('student');
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleRegister = () => {
-    Alert.alert(
-      'Registration Placeholder',
-      `EduBridge Registration API ready.\n\nName: ${fullName}\nRole: ${role}\nEmail: ${email}`
-    );
+  const { register } = useAuth();
+
+  const handleRegister = async () => {
+    if (!fullName || !email || !password) {
+      Alert.alert('Validation Error', 'Please complete all required fields.');
+      return;
+    }
+
+    setSubmitting(true);
+    const result = await register({ fullName, email, password, role });
+    setSubmitting(false);
+
+    if (result.success) {
+      Alert.alert('Account Created', `Welcome to EduBridge, ${result.user.fullName}!`);
+      navigation.navigate('Welcome');
+    } else {
+      Alert.alert('Registration Error', result.message);
+    }
   };
 
   return (
@@ -34,7 +50,7 @@ export default function RegisterScreen({ navigation }) {
         </TouchableOpacity>
 
         <Text style={styles.title}>Join EduBridge</Text>
-        <Text style={styles.subtitle}>Register your multi-institution account</Text>
+        <Text style={styles.subtitle}>Student & Parent Public Registration</Text>
 
         <View style={styles.formGroup}>
           <Text style={styles.label}>Full Name</Text>
@@ -64,7 +80,7 @@ export default function RegisterScreen({ navigation }) {
           <Text style={styles.label}>Password</Text>
           <TextInput
             style={styles.input}
-            placeholder="••••••••"
+            placeholder="•••••••• (Min 6 chars)"
             placeholderTextColor="#64748b"
             value={password}
             onChangeText={setPassword}
@@ -73,22 +89,39 @@ export default function RegisterScreen({ navigation }) {
         </View>
 
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Select Role</Text>
+          <Text style={styles.label}>Select Public Role</Text>
           <View style={styles.rolePicker}>
-            {['Student', 'Teacher', 'Parent', 'InstitutionAdmin'].map((r) => (
+            {[
+              { id: 'student', label: '🎓 Student' },
+              { id: 'parent', label: '👨‍👩‍👧 Parent' }
+            ].map((r) => (
               <TouchableOpacity
-                key={r}
-                style={[styles.roleOption, role === r && styles.roleOptionActive]}
-                onPress={() => setRole(r)}
+                key={r.id}
+                style={[styles.roleOption, role === r.id && styles.roleOptionActive]}
+                onPress={() => setRole(r.id)}
               >
-                <Text style={[styles.roleText, role === r && styles.roleTextActive]}>{r}</Text>
+                <Text style={[styles.roleText, role === r.id && styles.roleTextActive]}>
+                  {r.label}
+                </Text>
               </TouchableOpacity>
             ))}
           </View>
+          <Text style={styles.roleNote}>
+            * Teachers and Administrators must be registered by institution managers.
+          </Text>
         </View>
 
-        <TouchableOpacity style={styles.registerButton} onPress={handleRegister} activeOpacity={0.8}>
-          <Text style={styles.registerButtonText}>Register Account</Text>
+        <TouchableOpacity
+          style={styles.registerButton}
+          onPress={handleRegister}
+          disabled={submitting}
+          activeOpacity={0.8}
+        >
+          {submitting ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <Text style={styles.registerButtonText}>Register Account</Text>
+          )}
         </TouchableOpacity>
 
       </ScrollView>
@@ -145,16 +178,16 @@ const styles = StyleSheet.create({
   },
   rolePicker: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8
+    gap: 12
   },
   roleOption: {
+    flex: 1,
     backgroundColor: '#1e293b',
     borderWidth: 1,
     borderColor: '#334155',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center'
   },
   roleOptionActive: {
     backgroundColor: 'rgba(79, 70, 229, 0.2)',
@@ -162,12 +195,17 @@ const styles = StyleSheet.create({
   },
   roleText: {
     color: '#94a3b8',
-    fontSize: 13,
-    fontWeight: '500'
+    fontSize: 14,
+    fontWeight: '600'
   },
   roleTextActive: {
     color: '#818cf8',
     fontWeight: '700'
+  },
+  roleNote: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 8
   },
   registerButton: {
     backgroundColor: '#4f46e5',

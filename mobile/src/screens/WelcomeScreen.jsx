@@ -8,8 +8,11 @@ import {
   StatusBar,
   SafeAreaView
 } from 'react-native';
+import { useAuth } from '../context/AuthContext';
 
 export default function WelcomeScreen({ navigation }) {
+  const { user, isAuthenticated, logout } = useAuth();
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
@@ -23,6 +26,20 @@ export default function WelcomeScreen({ navigation }) {
           <Text style={styles.brandTitle}>EduBridge</Text>
           <Text style={styles.brandTagline}>Multi-Institution Education Platform</Text>
         </View>
+
+        {/* User Session Banner if logged in */}
+        {isAuthenticated && user && (
+          <View style={styles.userBanner}>
+            <View>
+              <Text style={styles.userName}>{user.fullName}</Text>
+              <Text style={styles.userRole}>Role: {user.role.toUpperCase()}</Text>
+              <Text style={styles.userEmail}>{user.email}</Text>
+            </View>
+            <TouchableOpacity style={styles.logoutButton} onPress={logout}>
+              <Text style={styles.logoutText}>Sign Out</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Feature Cards */}
         <View style={styles.cardSection}>
@@ -50,21 +67,33 @@ export default function WelcomeScreen({ navigation }) {
 
         {/* Action Buttons */}
         <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => navigation.navigate('Login')}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.primaryButtonText}>Sign In to Institution</Text>
-          </TouchableOpacity>
+          {!isAuthenticated ? (
+            <>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={() => navigation.navigate('Login')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.primaryButtonText}>Sign In to Institution</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => navigation.navigate('Register')}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.secondaryButtonText}>Create Account</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={() => navigation.navigate('Register')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.secondaryButtonText}>Create Student/Parent Account</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={() => navigation.navigate('PermissionDemo')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.primaryButtonText}>View Educational Dashboard</Text>
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity
             style={styles.demoButton}
@@ -93,7 +122,7 @@ const styles = StyleSheet.create({
   brandContainer: {
     alignItems: 'center',
     marginTop: 20,
-    marginBottom: 32
+    marginBottom: 20
   },
   logoBadge: {
     width: 68,
@@ -125,19 +154,59 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     marginTop: 6
   },
+  userBanner: {
+    backgroundColor: 'rgba(79, 70, 229, 0.15)',
+    borderColor: '#4f46e5',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  userName: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700'
+  },
+  userRole: {
+    color: '#818cf8',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2
+  },
+  userEmail: {
+    color: '#94a3b8',
+    fontSize: 12,
+    marginTop: 2
+  },
+  logoutButton: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8
+  },
+  logoutText: {
+    color: '#f87171',
+    fontSize: 12,
+    fontWeight: '700'
+  },
   cardSection: {
     gap: 16,
-    marginBottom: 32
+    marginBottom: 24
   },
   card: {
     backgroundColor: '#1e293b',
     borderRadius: 16,
-    padding: 20,
+    padding: 18,
     borderWidth: 1,
     borderColor: '#334155'
   },
   cardTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: '#f8fafc',
     marginBottom: 6
@@ -172,7 +241,7 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: '#818cf8',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600'
   },
   demoButton: {

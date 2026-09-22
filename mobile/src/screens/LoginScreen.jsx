@@ -7,19 +7,34 @@ import {
   TouchableOpacity,
   SafeAreaView,
   StatusBar,
-  Alert
+  Alert,
+  ActivityIndicator
 } from 'react-native';
+import { useAuth } from '../context/AuthContext';
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [institutionCode, setInstitutionCode] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleLogin = () => {
-    Alert.alert(
-      'Login Placeholder',
-      `EduBridge Authentication API connection ready.\n\nInstitution: ${institutionCode || 'Global'}\nEmail: ${email || 'Not provided'}`
-    );
+  const { login } = useAuth();
+
+  const handleLogin = async () => {
+    if (!email || !password) {
+      Alert.alert('Validation Error', 'Please enter email and password.');
+      return;
+    }
+
+    setSubmitting(true);
+    const result = await login(email, password);
+    setSubmitting(false);
+
+    if (result.success) {
+      Alert.alert('Welcome Back', `Logged in as ${result.user.fullName} (${result.user.role})`);
+      navigation.navigate('Welcome');
+    } else {
+      Alert.alert('Login Failed', result.message);
+    }
   };
 
   return (
@@ -33,18 +48,6 @@ export default function LoginScreen({ navigation }) {
 
         <Text style={styles.title}>Welcome Back</Text>
         <Text style={styles.subtitle}>Sign in to access your educational portal</Text>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Institution Code (Optional)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. SCH-101"
-            placeholderTextColor="#64748b"
-            value={institutionCode}
-            onChangeText={setInstitutionCode}
-            autoCapitalize="characters"
-          />
-        </View>
 
         <View style={styles.formGroup}>
           <Text style={styles.label}>Email Address</Text>
@@ -71,8 +74,17 @@ export default function LoginScreen({ navigation }) {
           />
         </View>
 
-        <TouchableOpacity style={styles.loginButton} onPress={handleLogin} activeOpacity={0.8}>
-          <Text style={styles.loginButtonText}>Sign In</Text>
+        <TouchableOpacity
+          style={styles.loginButton}
+          onPress={handleLogin}
+          disabled={submitting}
+          activeOpacity={0.8}
+        >
+          {submitting ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <Text style={styles.loginButtonText}>Sign In</Text>
+          )}
         </TouchableOpacity>
 
       </View>

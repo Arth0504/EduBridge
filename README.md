@@ -128,6 +128,33 @@ EduBridge is configured to connect directly to your cloud **MongoDB Atlas** clus
 
 ---
 
+## 🔐 Phase 2: Authentication & Role-Based Access Control (RBAC)
+
+### 👑 Single Super Admin Rule
+EduBridge enforces a strict system rule: **Exactly ONE `super_admin` account exists system-wide**.
+- **Seed Script**: Run `node scripts/seedSuperAdmin.js` in `backend/` to create the initial Super Admin account using `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` from `.env`.
+- **Duplicate Protection**: The seed script and database model prevent creating duplicate Super Admin accounts.
+- **Public API Protection**: Public registration (`POST /api/v1/auth/register`) strictly blocks `super_admin`, `institution_admin`, and `teacher` roles.
+
+### 📡 Authentication API Endpoints
+- `POST /api/v1/auth/register` - Public registration for **Student** & **Parent** roles only.
+- `POST /api/v1/auth/login` - Authenticate user and issue JWT token (`userId`, `role`, `institutionId`).
+- `GET /api/v1/auth/me` - Protected profile route returning authenticated user details.
+- `POST /api/v1/auth/logout` - Invalidate client token session.
+- `PATCH /api/v1/auth/change-password` - Update account password securely.
+- `GET /api/v1/auth/protected-test` - Protected verification test route.
+
+### 🧪 Running the Auth Test Suite
+Execute the automated test suite in `backend/`:
+
+```bash
+cd backend
+node scripts/seedSuperAdmin.js
+node scripts/testAuth.js
+```
+
+---
+
 ## 🔧 Environment Variables
 
 Copy `backend/.env.example` to `backend/.env` and update the parameters:
@@ -139,5 +166,11 @@ MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/EduBridge?r
 JWT_SECRET=your_jwt_secret_key_here
 JWT_EXPIRES_IN=7d
 CORS_ORIGIN=*
+
+# Super Admin Seed Credentials
+SUPER_ADMIN_NAME=System Administrator
+SUPER_ADMIN_EMAIL=superadmin@edubridge.org
+SUPER_ADMIN_PASSWORD=SuperAdminSecretPassword123!
 ```
+
 
