@@ -10,7 +10,10 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import InstitutionRegisterPage from './pages/InstitutionRegisterPage';
 import SuperAdminInstitutionsPage from './pages/SuperAdminInstitutionsPage';
-import MyInstitutionPage from './pages/MyInstitutionPage';
+import UsersPage from './pages/UsersPage';
+import StudentsPage from './pages/StudentsPage';
+import TeachersPage from './pages/TeachersPage';
+import ParentsPage from './pages/ParentsPage';
 
 function MainLayout() {
   return (
@@ -40,10 +43,31 @@ function MainLayout() {
             path="/users"
             element={
               <ProtectedRoute allowedRoles={['super_admin', 'institution_admin', 'teacher']}>
-                <DashboardPlaceholder
-                  title="User Directory"
-                  description="Manage platform administrators, institution heads, educators, students, and parent accounts."
-                />
+                <UsersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/students"
+            element={
+              <ProtectedRoute allowedRoles={['super_admin', 'institution_admin', 'teacher']}>
+                <StudentsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/teachers"
+            element={
+              <ProtectedRoute allowedRoles={['super_admin', 'institution_admin']}>
+                <TeachersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/parents"
+            element={
+              <ProtectedRoute allowedRoles={['super_admin', 'institution_admin', 'teacher']}>
+                <ParentsPage />
               </ProtectedRoute>
             }
           />

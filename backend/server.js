@@ -11,6 +11,11 @@ const authRoutes = require('./routes/auth.routes');
 const institutionRoutes = require('./routes/institution.routes');
 const institutionMiddleware = require('./middleware/institution.middleware');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
+const userRoutes = require('./routes/user.routes');
+const studentRoutes = require('./routes/student.routes');
+const teacherRoutes = require('./routes/teacher.routes');
+const parentRoutes = require('./routes/parent.routes');
+const parentChildLinkRoutes = require('./routes/parentChildLink.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -30,6 +35,11 @@ app.use('/api', healthRoutes);
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/v1/institutions', institutionRoutes);
+app.use('/api/v1/users', userRoutes);
+app.use('/api/v1/students', studentRoutes);
+app.use('/api/v1/teachers', teacherRoutes);
+app.use('/api/v1/parents', parentRoutes);
+app.use('/api/v1/parent-child-links', parentChildLinkRoutes);
 
 
 

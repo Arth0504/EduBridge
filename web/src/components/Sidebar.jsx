@@ -45,12 +45,32 @@ export default function Sidebar() {
         )}
 
         {(role === 'super_admin' || role === 'institution_admin' || role === 'teacher') && (
-          <li className="nav-item">
-            <NavLink to="/users" className={({ isActive }) => (isActive ? 'active' : '')}>
-              <Users size={18} />
-              <span>User Directory</span>
-            </NavLink>
-          </li>
+          <>
+            <li className="nav-item">
+              <NavLink to="/users" className={({ isActive }) => (isActive ? 'active' : '')}>
+                <Users size={18} />
+                <span>User Directory</span>
+              </NavLink>
+            </li>
+            <li className="nav-item">
+              <NavLink to="/students" className={({ isActive }) => (isActive ? 'active' : '')}>
+                <GraduationCap size={18} />
+                <span>Students</span>
+              </NavLink>
+            </li>
+            <li className="nav-item">
+              <NavLink to="/teachers" className={({ isActive }) => (isActive ? 'active' : '')}>
+                <UserCheck size={18} />
+                <span>Teachers</span>
+              </NavLink>
+            </li>
+            <li className="nav-item">
+              <NavLink to="/parents" className={({ isActive }) => (isActive ? 'active' : '')}>
+                <User size={18} />
+                <span>Parents</span>
+              </NavLink>
+            </li>
+          </>
         )}
 
         {role === 'super_admin' && (
