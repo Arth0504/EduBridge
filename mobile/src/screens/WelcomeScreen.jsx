@@ -30,16 +30,26 @@ export default function WelcomeScreen({ navigation }) {
         {/* User Session Banner if logged in */}
         {isAuthenticated && user && (
           <View style={styles.userBanner}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.userName}>{user.fullName}</Text>
               <Text style={styles.userRole}>Role: {user.role.toUpperCase()}</Text>
               <Text style={styles.userEmail}>{user.email}</Text>
+              {user.institutionId ? (
+                <Text style={{ fontSize: 11, color: '#38bdf8', marginTop: 4, fontWeight: '600' }}>
+                  🏫 Bound Institution ID: {typeof user.institutionId === 'object' ? user.institutionId._id : user.institutionId}
+                </Text>
+              ) : (
+                <Text style={{ fontSize: 11, color: '#a7f3d0', marginTop: 4, fontWeight: '600' }}>
+                  🌐 Global System Administrator
+                </Text>
+              )}
             </View>
             <TouchableOpacity style={styles.logoutButton} onPress={logout}>
               <Text style={styles.logoutText}>Sign Out</Text>
             </TouchableOpacity>
           </View>
         )}
+
 
         {/* Feature Cards */}
         <View style={styles.cardSection}>
