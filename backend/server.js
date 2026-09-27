@@ -17,6 +17,13 @@ const teacherRoutes = require('./routes/teacher.routes');
 const parentRoutes = require('./routes/parent.routes');
 const parentChildLinkRoutes = require('./routes/parentChildLink.routes');
 const notificationRoutes = require('./routes/notification.routes');
+const academicYearRoutes = require('./routes/academicYear.routes');
+const classRoutes = require('./routes/class.routes');
+const sectionRoutes = require('./routes/section.routes');
+const subjectRoutes = require('./routes/subject.routes');
+const teacherAssignmentRoutes = require('./routes/teacherAssignment.routes');
+const studentEnrollmentRoutes = require('./routes/studentEnrollment.routes');
+const academicSummaryRoutes = require('./routes/academicSummary.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -42,6 +49,13 @@ app.use('/api/v1/teachers', teacherRoutes);
 app.use('/api/v1/parents', parentRoutes);
 app.use('/api/v1/parent-child-links', parentChildLinkRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
+app.use('/api/v1/academic-years', academicYearRoutes);
+app.use('/api/v1/classes', classRoutes);
+app.use('/api/v1/sections', sectionRoutes);
+app.use('/api/v1/subjects', subjectRoutes);
+app.use('/api/v1/teacher-subject-assignments', teacherAssignmentRoutes);
+app.use('/api/v1/student-enrollments', studentEnrollmentRoutes);
+app.use('/api/v1/academic', academicSummaryRoutes);
 
 
 

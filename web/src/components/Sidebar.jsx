@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { GraduationCap, LayoutDashboard, Building2, Users, Shield, Settings, UserCheck, Bell } from 'lucide-react';
+import { GraduationCap, LayoutDashboard, Building2, Users, Shield, Settings, UserCheck, Bell, BookOpen } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Sidebar() {
@@ -21,6 +21,13 @@ export default function Sidebar() {
           <NavLink to="/" className={({ isActive }) => (isActive ? 'active' : '')}>
             <LayoutDashboard size={18} />
             <span>Overview</span>
+          </NavLink>
+        </li>
+
+        <li className="nav-item">
+          <NavLink to="/academic" className={({ isActive }) => (isActive ? 'active' : '')}>
+            <BookOpen size={18} />
+            <span>Academic Hub</span>
           </NavLink>
         </li>
 
