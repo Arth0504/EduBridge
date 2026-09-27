@@ -18,6 +18,7 @@ import MyInstitutionPage from './pages/MyInstitutionPage';
 import NotificationsPage from './pages/NotificationsPage';
 import AcademicManagementPage from './pages/AcademicManagementPage';
 import AttendanceManagementPage from './pages/AttendanceManagementPage';
+import FeeManagementPage from './pages/FeeManagementPage';
 
 function MainLayout() {
   return (
@@ -40,6 +41,14 @@ function MainLayout() {
             element={
               <ProtectedRoute>
                 <AttendanceManagementPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/fees"
+            element={
+              <ProtectedRoute>
+                <FeeManagementPage />
               </ProtectedRoute>
             }
           />

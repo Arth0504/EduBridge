@@ -114,6 +114,14 @@ export default function WelcomeScreen({ navigation }) {
               </TouchableOpacity>
 
               <TouchableOpacity
+                style={[styles.primaryButton, { backgroundColor: '#2563eb', marginTop: 10 }]}
+                onPress={() => navigation.navigate('Fee')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.primaryButtonText}>💳 Fee & Billing Hub</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 style={styles.secondaryButton}
                 onPress={() => navigation.navigate('Notifications')}
                 activeOpacity={0.8}
