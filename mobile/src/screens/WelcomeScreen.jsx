@@ -96,13 +96,23 @@ export default function WelcomeScreen({ navigation }) {
               </TouchableOpacity>
             </>
           ) : (
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={() => navigation.navigate('PermissionDemo')}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.primaryButtonText}>View Educational Dashboard</Text>
-            </TouchableOpacity>
+            <>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={() => navigation.navigate('Notifications')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.primaryButtonText}>🔔 View Notifications Feed</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={() => navigation.navigate('PermissionDemo')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.secondaryButtonText}>View Educational Dashboard</Text>
+              </TouchableOpacity>
+            </>
           )}
 
           <TouchableOpacity

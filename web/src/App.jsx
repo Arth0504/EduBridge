@@ -11,9 +11,10 @@ import RegisterPage from './pages/RegisterPage';
 import InstitutionRegisterPage from './pages/InstitutionRegisterPage';
 import SuperAdminInstitutionsPage from './pages/SuperAdminInstitutionsPage';
 import UsersPage from './pages/UsersPage';
-import StudentsPage from './pages/StudentsPage';
 import TeachersPage from './pages/TeachersPage';
 import ParentsPage from './pages/ParentsPage';
+import MyInstitutionPage from './pages/MyInstitutionPage';
+import NotificationsPage from './pages/NotificationsPage';
 
 function MainLayout() {
   return (
@@ -23,6 +24,14 @@ function MainLayout() {
         <Header />
         <Routes>
           <Route path="/" element={<WelcomePage />} />
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute>
+                <NotificationsPage />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/institutions"
             element={

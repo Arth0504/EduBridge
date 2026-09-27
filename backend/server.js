@@ -16,6 +16,7 @@ const studentRoutes = require('./routes/student.routes');
 const teacherRoutes = require('./routes/teacher.routes');
 const parentRoutes = require('./routes/parent.routes');
 const parentChildLinkRoutes = require('./routes/parentChildLink.routes');
+const notificationRoutes = require('./routes/notification.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -40,6 +41,7 @@ app.use('/api/v1/students', studentRoutes);
 app.use('/api/v1/teachers', teacherRoutes);
 app.use('/api/v1/parents', parentRoutes);
 app.use('/api/v1/parent-child-links', parentChildLinkRoutes);
+app.use('/api/v1/notifications', notificationRoutes);
 
 
 

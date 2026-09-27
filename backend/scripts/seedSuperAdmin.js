@@ -18,7 +18,7 @@ const seedSuperAdmin = async () => {
     const existingSuperAdmin = await User.findOne({ role: 'super_admin' });
 
     if (existingSuperAdmin) {
-      logger.info(`✅ System Rule Enforced: Super Admin already exists (${existingSuperAdmin.email}). No duplicate created.`);
+      logger.info(` System Rule Enforced: Super Admin already exists (${existingSuperAdmin.email}). No duplicate created.`);
       await mongoose.connection.close();
       process.exit(0);
     }
@@ -38,7 +38,7 @@ const seedSuperAdmin = async () => {
       isEmailVerified: true
     });
 
-    logger.info(`🎉 Single System Super Admin created successfully!`);
+    logger.info(` Single System  Admin created successfully!`);
     logger.info(`   Name: ${superAdmin.fullName}`);
     logger.info(`   Email: ${superAdmin.email}`);
     logger.info(`   Role: ${superAdmin.role}`);
@@ -46,7 +46,7 @@ const seedSuperAdmin = async () => {
     await mongoose.connection.close();
     process.exit(0);
   } catch (error) {
-    logger.error(`❌ Super Admin seed failed: ${error.message}`);
+    logger.error(` Super Admin seed failed: ${error.message}`);
     if (mongoose.connection.readyState !== 0) {
       await mongoose.connection.close();
     }
