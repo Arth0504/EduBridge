@@ -47,7 +47,7 @@ const feePaymentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'initiated', 'paid', 'failed', 'cancelled', 'refunded'],
+      enum: ['pending', 'initiated', 'successful', 'paid', 'failed', 'cancelled', 'refunded', 'partially_refunded'],
       default: 'pending'
     },
     collectedBy: {
@@ -80,6 +80,25 @@ const feePaymentSchema = new mongoose.Schema(
       trim: true,
       default: ''
     },
+    refundAmount: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    refundReason: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    refundedAt: {
+      type: Date,
+      default: null
+    },
+    refundedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
@@ -107,3 +126,4 @@ feePaymentSchema.index({ studentId: 1, academicYearId: 1 });
 feePaymentSchema.index({ studentFeeId: 1 });
 
 module.exports = mongoose.model('FeePayment', feePaymentSchema);
+

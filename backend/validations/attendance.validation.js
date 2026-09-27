@@ -2,6 +2,18 @@ const mongoose = require('mongoose');
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
+const VALID_STATUSES = ['present', 'absent', 'late', 'half_day', 'excused', 'leave'];
+
+const isFutureDate = (dateStr) => {
+  const inputDate = new Date(dateStr);
+  inputDate.setUTCHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setUTCHours(23, 59, 59, 999);
+
+  return inputDate > today;
+};
+
 const validateSingleAttendanceInput = (data) => {
   const errors = [];
 
@@ -21,21 +33,23 @@ const validateSingleAttendanceInput = (data) => {
     errors.push('Valid studentId is required.');
   }
 
-  if (!data.teacherId || !isValidObjectId(data.teacherId)) {
-    errors.push('Valid teacherId is required.');
+  if (data.teacherId && !isValidObjectId(data.teacherId)) {
+    errors.push('Provided teacherId is invalid.');
   }
 
   if (data.subjectId && !isValidObjectId(data.subjectId)) {
     errors.push('Provided subjectId is invalid.');
   }
 
-  if (!data.attendanceDate || isNaN(Date.parse(data.attendanceDate))) {
-    errors.push('Valid attendanceDate is required.');
+  const dateVal = data.date || data.attendanceDate;
+  if (!dateVal || isNaN(Date.parse(dateVal))) {
+    errors.push('Valid attendance date is required.');
+  } else if (isFutureDate(dateVal)) {
+    errors.push('Attendance cannot be marked for future dates.');
   }
 
-  const validStatuses = ['present', 'absent', 'late', 'leave'];
-  if (!data.status || !validStatuses.includes(data.status)) {
-    errors.push(`Status must be one of: ${validStatuses.join(', ')}.`);
+  if (!data.status || !VALID_STATUSES.includes(data.status)) {
+    errors.push(`Status must be one of: ${VALID_STATUSES.join(', ')}.`);
   }
 
   return {
@@ -59,28 +73,30 @@ const validateBulkAttendanceInput = (data) => {
     errors.push('Valid sectionId is required.');
   }
 
-  if (!data.teacherId || !isValidObjectId(data.teacherId)) {
-    errors.push('Valid teacherId is required.');
+  if (data.teacherId && !isValidObjectId(data.teacherId)) {
+    errors.push('Provided teacherId is invalid.');
   }
 
   if (data.subjectId && !isValidObjectId(data.subjectId)) {
     errors.push('Provided subjectId is invalid.');
   }
 
-  if (!data.attendanceDate || isNaN(Date.parse(data.attendanceDate))) {
-    errors.push('Valid attendanceDate is required.');
+  const dateVal = data.date || data.attendanceDate;
+  if (!dateVal || isNaN(Date.parse(dateVal))) {
+    errors.push('Valid attendance date is required.');
+  } else if (isFutureDate(dateVal)) {
+    errors.push('Attendance cannot be marked for future dates.');
   }
 
   if (!Array.isArray(data.records) || data.records.length === 0) {
     errors.push('records array with at least one student attendance entry is required.');
   } else {
-    const validStatuses = ['present', 'absent', 'late', 'leave'];
     data.records.forEach((rec, idx) => {
       if (!rec.studentId || !isValidObjectId(rec.studentId)) {
         errors.push(`Record [${idx}] has an invalid studentId.`);
       }
-      if (!rec.status || !validStatuses.includes(rec.status)) {
-        errors.push(`Record [${idx}] status must be one of: ${validStatuses.join(', ')}.`);
+      if (!rec.status || !VALID_STATUSES.includes(rec.status)) {
+        errors.push(`Record [${idx}] status must be one of: ${VALID_STATUSES.join(', ')}.`);
       }
     });
   }
@@ -91,8 +107,27 @@ const validateBulkAttendanceInput = (data) => {
   };
 };
 
+const validateAttendanceCorrectionInput = (data) => {
+  const errors = [];
+
+  if (data.status && !VALID_STATUSES.includes(data.status)) {
+    errors.push(`Status must be one of: ${VALID_STATUSES.join(', ')}.`);
+  }
+
+  if (!data.correctionReason || typeof data.correctionReason !== 'string' || data.correctionReason.trim() === '') {
+    errors.push('correctionReason is required when correcting/updating finalized attendance records.');
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+};
+
 module.exports = {
   isValidObjectId,
+  VALID_STATUSES,
   validateSingleAttendanceInput,
-  validateBulkAttendanceInput
+  validateBulkAttendanceInput,
+  validateAttendanceCorrectionInput
 };

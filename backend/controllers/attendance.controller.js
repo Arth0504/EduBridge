@@ -1,7 +1,6 @@
 const Attendance = require('../models/Attendance');
 const TeacherProfile = require('../models/TeacherProfile');
 const StudentProfile = require('../models/StudentProfile');
-const TeacherSubjectAssignment = require('../models/TeacherSubjectAssignment');
 const StudentAcademicEnrollment = require('../models/StudentAcademicEnrollment');
 const ParentChildLink = require('../models/ParentChildLink');
 const Class = require('../models/Class');
@@ -13,6 +12,7 @@ const { logAuditEvent } = require('../utils/auditLogger');
 const {
   validateSingleAttendanceInput,
   validateBulkAttendanceInput,
+  validateAttendanceCorrectionInput,
   isValidObjectId
 } = require('../validations/attendance.validation');
 const {
@@ -33,26 +33,24 @@ const getParentLinkedStudentProfileIds = async (parentUserId, institutionId) => 
 };
 
 /**
- * Helper: Resolve Teacher Profile for current logged-in user if teacher
+ * Helper: Resolve Teacher Profile for user
  */
 const getTeacherProfileForUser = async (userId, institutionId) => {
   return await TeacherProfile.findOne({ userId, institutionId });
 };
 
 /**
- * Helper: Resolve Student Profile for current logged-in user if student
- */
-const getStudentProfileForUser = async (userId, institutionId) => {
-  return await StudentProfile.findOne({ userId, institutionId });
-};
-
-/**
- * @desc    Create or update single attendance record
+ * @desc    Create or Update single attendance record
  * @route   POST /api/v1/attendance
  * @access  Private (Super Admin, Institution Admin, Teacher)
  */
 const createOrUpdateAttendance = async (req, res, next) => {
   try {
+    // If request contains bulk `records` array, redirect to bulk processing handler
+    if (Array.isArray(req.body.records) && req.body.records.length > 0) {
+      return bulkSubmitAttendance(req, res, next);
+    }
+
     const val = validateSingleAttendanceInput(req.body);
     if (!val.isValid) {
       return sendError(res, 400, val.errors.join(' '));
@@ -72,39 +70,41 @@ const createOrUpdateAttendance = async (req, res, next) => {
       teacherId,
       subjectId,
       attendanceDate,
+      date,
       status,
       remarks
     } = req.body;
 
-    // 1. Verify Teacher role scope if logged-in user is a teacher
+    let activeTeacherId = teacherId || null;
+
+    // 1. Teacher Authorization Check
     if (req.user.role === 'teacher') {
       const teacherProfile = await getTeacherProfileForUser(req.user._id, targetInstitutionId);
-      if (!teacherProfile || teacherProfile._id.toString() !== teacherId.toString()) {
-        return sendError(res, 403, 'Teachers can only mark attendance using their own profile ID.');
+      if (!teacherProfile) {
+        return sendError(res, 403, 'Forbidden: Teacher profile not found for logged-in user.');
+      }
+      activeTeacherId = teacherProfile._id;
+
+      const teacherCheck = await verifyTeacherAssignment(
+        teacherProfile._id,
+        targetInstitutionId,
+        academicYearId,
+        classId,
+        sectionId,
+        subjectId || null
+      );
+      if (!teacherCheck.valid) {
+        logAuditEvent({
+          actor: req.user._id,
+          institution: targetInstitutionId,
+          action: 'UNAUTHORIZED_ATTENDANCE_ATTEMPT',
+          details: { teacherId: teacherProfile._id, classId, sectionId }
+        });
+        return sendError(res, teacherCheck.code, teacherCheck.message);
       }
     }
 
-    // 2. Validate Teacher Assignment
-    const teacherCheck = await verifyTeacherAssignment(
-      teacherId,
-      targetInstitutionId,
-      academicYearId,
-      classId,
-      sectionId,
-      subjectId || null
-    );
-    if (!teacherCheck.valid) {
-      logAuditEvent({
-        actor: req.user._id,
-        institution: targetInstitutionId,
-        action: 'UNAUTHORIZED_ATTENDANCE_ATTEMPT',
-        target: teacherId,
-        details: { reason: teacherCheck.message, classId, sectionId, academicYearId }
-      });
-      return sendError(res, teacherCheck.code, teacherCheck.message);
-    }
-
-    // 3. Validate Student Enrollment
+    // 2. Validate Student Enrollment
     const studentCheck = await verifyStudentEnrollment(
       studentId,
       targetInstitutionId,
@@ -116,31 +116,23 @@ const createOrUpdateAttendance = async (req, res, next) => {
       return sendError(res, studentCheck.code, studentCheck.message);
     }
 
-    // 4. Validate subject if provided
-    if (subjectId) {
-      const subj = await Subject.findById(subjectId);
-      if (!subj || subj.institutionId.toString() !== targetInstitutionId.toString()) {
-        return sendError(res, 400, 'Subject not found or belongs to another institution.');
-      }
-    }
+    const normDate = normalizeDate(date || attendanceDate);
 
-    const normDate = normalizeDate(attendanceDate);
-
-    // 5. Upsert attendance record
+    // 3. Duplicate / Upsert Check
     const filter = {
       institutionId: targetInstitutionId,
       academicYearId,
-      classId,
-      sectionId,
       studentId,
-      attendanceDate: normDate,
+      date: normDate,
       subjectId: subjectId || null
     };
 
     const existing = await Attendance.findOne(filter);
-    const isNew = !existing;
+    if (existing && !req.body.overwrite) {
+      return sendError(res, 400, 'Attendance already marked for this student on the specified date.');
+    }
 
-    const record = await Attendance.findOneAndUpdate(
+    const attendanceRecord = await Attendance.findOneAndUpdate(
       filter,
       {
         institutionId: targetInstitutionId,
@@ -148,26 +140,30 @@ const createOrUpdateAttendance = async (req, res, next) => {
         classId,
         sectionId,
         studentId,
+        teacherId: activeTeacherId,
         subjectId: subjectId || null,
-        teacherId,
+        date: normDate,
         attendanceDate: normDate,
         status,
         remarks: remarks || '',
-        ...(isNew ? { createdBy: req.user._id } : { updatedBy: req.user._id })
+        markedBy: req.user._id,
+        markedByRole: req.user.role,
+        updatedBy: req.user._id,
+        isDeleted: false
       },
-      { upsert: true, new: true, runValidators: true }
+      { new: true, upsert: true, runValidators: true }
     );
 
     logAuditEvent({
       actor: req.user._id,
       institution: targetInstitutionId,
-      action: isNew ? 'ATTENDANCE_CREATED' : 'ATTENDANCE_UPDATED',
-      target: record._id,
-      details: { studentId, classId, sectionId, attendanceDate: normDate, status }
+      action: existing ? 'ATTENDANCE_UPDATED' : 'ATTENDANCE_CREATED',
+      target: attendanceRecord._id,
+      details: { studentId, date: normDate, status }
     });
 
-    return sendSuccess(res, isNew ? 201 : 200, `Attendance record ${isNew ? 'created' : 'updated'} successfully`, {
-      attendance: record
+    return sendSuccess(res, existing ? 200 : 201, `Attendance ${existing ? 'updated' : 'marked'} successfully`, {
+      attendance: attendanceRecord
     });
   } catch (error) {
     next(error);
@@ -175,7 +171,7 @@ const createOrUpdateAttendance = async (req, res, next) => {
 };
 
 /**
- * @desc    Submit bulk attendance for a class/section
+ * @desc    Bulk Submit Attendance Records
  * @route   POST /api/v1/attendance/bulk
  * @access  Private (Super Admin, Institution Admin, Teacher)
  */
@@ -199,114 +195,95 @@ const bulkSubmitAttendance = async (req, res, next) => {
       teacherId,
       subjectId,
       attendanceDate,
+      date,
       records
     } = req.body;
 
-    // 1. Verify Teacher role scope if logged-in user is teacher
+    let activeTeacherId = teacherId || null;
+
+    // Teacher authorization check
     if (req.user.role === 'teacher') {
       const teacherProfile = await getTeacherProfileForUser(req.user._id, targetInstitutionId);
-      if (!teacherProfile || teacherProfile._id.toString() !== teacherId.toString()) {
-        return sendError(res, 403, 'Teachers can only submit bulk attendance using their own teacher profile ID.');
+      if (!teacherProfile) {
+        return sendError(res, 403, 'Forbidden: Teacher profile not found.');
       }
-    }
+      activeTeacherId = teacherProfile._id;
 
-    // 2. Validate Teacher Assignment
-    const teacherCheck = await verifyTeacherAssignment(
-      teacherId,
-      targetInstitutionId,
-      academicYearId,
-      classId,
-      sectionId,
-      subjectId || null
-    );
-    if (!teacherCheck.valid) {
-      logAuditEvent({
-        actor: req.user._id,
-        institution: targetInstitutionId,
-        action: 'UNAUTHORIZED_ATTENDANCE_ATTEMPT',
-        target: teacherId,
-        details: { reason: teacherCheck.message, classId, sectionId, academicYearId }
-      });
-      return sendError(res, teacherCheck.code, teacherCheck.message);
-    }
-
-    const normDate = normalizeDate(attendanceDate);
-
-    // 3. Pre-validate ALL students in batch to ensure zero partial unauthorized writes
-    for (let i = 0; i < records.length; i++) {
-      const rec = records[i];
-      const studentCheck = await verifyStudentEnrollment(
-        rec.studentId,
+      const teacherCheck = await verifyTeacherAssignment(
+        teacherProfile._id,
         targetInstitutionId,
         academicYearId,
         classId,
-        sectionId
+        sectionId,
+        subjectId || null
       );
-      if (!studentCheck.valid) {
-        return sendError(res, studentCheck.code, `Student record [${i}]: ${studentCheck.message}`);
+      if (!teacherCheck.valid) {
+        logAuditEvent({
+          actor: req.user._id,
+          institution: targetInstitutionId,
+          action: 'UNAUTHORIZED_BULK_ATTENDANCE_ATTEMPT',
+          details: { teacherId: teacherProfile._id, classId, sectionId }
+        });
+        return sendError(res, teacherCheck.code, teacherCheck.message);
       }
     }
 
-    // 4. Perform bulk upsert operations safely
-    const bulkOps = records.map((rec) => {
+    const normDate = normalizeDate(date || attendanceDate);
+
+    // Process bulk records
+    const processedRecords = [];
+    let markedCount = 0;
+    let updatedCount = 0;
+
+    for (const rec of records) {
       const filter = {
         institutionId: targetInstitutionId,
         academicYearId,
-        classId,
-        sectionId,
         studentId: rec.studentId,
-        attendanceDate: normDate,
+        date: normDate,
         subjectId: subjectId || null
       };
 
-      return {
-        updateOne: {
-          filter,
-          update: {
-            $set: {
-              institutionId: targetInstitutionId,
-              academicYearId,
-              classId,
-              sectionId,
-              studentId: rec.studentId,
-              subjectId: subjectId || null,
-              teacherId,
-              attendanceDate: normDate,
-              status: rec.status,
-              remarks: rec.remarks || '',
-              updatedBy: req.user._id
-            },
-            $setOnInsert: {
-              createdBy: req.user._id
-            }
-          },
-          upsert: true
-        }
-      };
-    });
+      const existing = await Attendance.findOne(filter);
+      if (existing) updatedCount++;
+      else markedCount++;
 
-    const result = await Attendance.bulkWrite(bulkOps);
+      const doc = await Attendance.findOneAndUpdate(
+        filter,
+        {
+          institutionId: targetInstitutionId,
+          academicYearId,
+          classId,
+          sectionId,
+          studentId: rec.studentId,
+          teacherId: activeTeacherId,
+          subjectId: subjectId || null,
+          date: normDate,
+          attendanceDate: normDate,
+          status: rec.status,
+          remarks: rec.remarks || '',
+          markedBy: req.user._id,
+          markedByRole: req.user.role,
+          updatedBy: req.user._id,
+          isDeleted: false
+        },
+        { new: true, upsert: true, runValidators: true }
+      );
+      processedRecords.push(doc);
+    }
 
     logAuditEvent({
       actor: req.user._id,
       institution: targetInstitutionId,
-      action: 'BULK_ATTENDANCE_SUBMITTED',
-      target: classId,
-      details: {
-        sectionId,
-        academicYearId,
-        subjectId: subjectId || null,
-        attendanceDate: normDate,
-        totalRecords: records.length,
-        upsertedCount: result.upsertedCount,
-        modifiedCount: result.modifiedCount
-      }
+      action: 'ATTENDANCE_BULK_MARKED',
+      details: { classId, sectionId, date: normDate, markedCount, updatedCount, totalRecords: records.length }
     });
 
-    return sendSuccess(res, 200, `Bulk attendance submitted successfully for ${records.length} students`, {
-      processedCount: records.length,
-      upsertedCount: result.upsertedCount,
-      modifiedCount: result.modifiedCount
+    return sendSuccess(res, 201, `Bulk attendance processed. ${markedCount} marked, ${updatedCount} updated.`, {
+      total: records.length,
+      markedCount,
+      updatedCount,
+      attendanceRecords: processedRecords
     });
   } catch (error) {
     next(error);
@@ -314,15 +291,14 @@ const bulkSubmitAttendance = async (req, res, next) => {
 };
 
 /**
- * @desc    Get attendance records with filtering, pagination & isolation checks
+ * @desc    Get Attendance Records with Role & Tenant Filtering
  * @route   GET /api/v1/attendance
  * @access  Private
  */
 const getAttendanceRecords = async (req, res, next) => {
   try {
-    const filter = {};
+    const filter = { isDeleted: { $ne: true } };
 
-    // 1. Institution Isolation
     if (req.user.role === 'super_admin') {
       if (req.query.institutionId) filter.institutionId = req.query.institutionId;
     } else {
@@ -333,304 +309,49 @@ const getAttendanceRecords = async (req, res, next) => {
       academicYearId,
       classId,
       sectionId,
-      subjectId,
-      teacherId,
       studentId,
-      attendanceDate,
+      date,
       startDate,
       endDate,
-      status,
-      page = 1,
-      limit = 50
+      status
     } = req.query;
 
     if (academicYearId) filter.academicYearId = academicYearId;
     if (classId) filter.classId = classId;
     if (sectionId) filter.sectionId = sectionId;
-    if (subjectId) filter.subjectId = subjectId;
-    if (teacherId) filter.teacherId = teacherId;
     if (status) filter.status = status;
 
-    if (attendanceDate) {
-      filter.attendanceDate = normalizeDate(attendanceDate);
+    if (date) {
+      filter.date = normalizeDate(date);
     } else if (startDate || endDate) {
-      filter.attendanceDate = {};
-      if (startDate) filter.attendanceDate.$gte = normalizeDate(startDate);
-      if (endDate) filter.attendanceDate.$lte = normalizeDate(endDate);
+      filter.date = {};
+      if (startDate) filter.date.$gte = normalizeDate(startDate);
+      if (endDate) filter.date.$lte = normalizeDate(endDate);
     }
 
-    // 2. Role-based Scope Enforcement
-    if (req.user.role === 'teacher') {
-      const teacherProfile = await getTeacherProfileForUser(req.user._id, filter.institutionId);
-      if (!teacherProfile) {
-        return sendError(res, 403, 'Teacher profile not found.');
+    // Role-based Access Control Enforcement
+    if (req.user.role === 'student') {
+      const myProfile = await StudentProfile.findOne({ userId: req.user._id, institutionId: filter.institutionId });
+      if (!myProfile) return sendError(res, 403, 'Student profile not found.');
+      if (studentId && studentId !== myProfile._id.toString()) {
+        return sendError(res, 403, 'Forbidden: Students can view only their own attendance.');
       }
-
-      // Find all active assignments for this teacher in specified/current academic year
-      const assignFilter = {
-        institutionId: filter.institutionId,
-        teacherId: teacherProfile._id,
-        isActive: true
-      };
-      if (academicYearId) assignFilter.academicYearId = academicYearId;
-
-      const assignments = await TeacherSubjectAssignment.find(assignFilter);
-      if (!assignments || assignments.length === 0) {
-        // Teacher has no assignments, return empty array
-        return sendSuccess(res, 200, 'Attendance records retrieved', { count: 0, total: 0, page: 1, pages: 1, attendance: [] });
-      }
-
-      // If user queried a specific class/section/subject, verify authorization!
-      if (classId && sectionId) {
-        const isAssigned = assignments.some(
-          (a) =>
-            a.classId.toString() === classId.toString() &&
-            a.sectionId.toString() === sectionId.toString() &&
-            (!subjectId || a.subjectId.toString() === subjectId.toString())
-        );
-        if (!isAssigned) {
-          return sendError(res, 403, 'Forbidden: You are not authorized to view attendance for this class/section/subject.');
-        }
-      } else {
-        // Limit query to teacher's authorized class/section combinations
-        const conditions = assignments.map((a) => ({
-          classId: a.classId,
-          sectionId: a.sectionId
-        }));
-        filter.$or = conditions;
-      }
-    } else if (req.user.role === 'student') {
-      const studentProfile = await getStudentProfileForUser(req.user._id, filter.institutionId);
-      if (!studentProfile) {
-        return sendError(res, 403, 'Student profile not found.');
-      }
-      if (studentId && studentId !== studentProfile._id.toString()) {
-        return sendError(res, 403, 'Forbidden: Students can only view their own attendance.');
-      }
-      filter.studentId = studentProfile._id;
+      filter.studentId = myProfile._id;
     } else if (req.user.role === 'parent') {
       const linkedStudentIds = await getParentLinkedStudentProfileIds(req.user._id, filter.institutionId);
       if (linkedStudentIds.length === 0) {
-        return sendSuccess(res, 200, 'Attendance records retrieved', { count: 0, total: 0, page: 1, pages: 1, attendance: [] });
+        return sendSuccess(res, 200, 'Attendance records retrieved', { count: 0, attendance: [] });
       }
       if (studentId) {
         if (!linkedStudentIds.includes(studentId.toString())) {
-          return sendError(res, 403, 'Forbidden: Parent can only view attendance for linked children.');
+          return sendError(res, 403, 'Forbidden: Parents can view attendance only for linked children.');
         }
         filter.studentId = studentId;
       } else {
         filter.studentId = { $in: linkedStudentIds };
       }
-    } else {
-      if (studentId) filter.studentId = studentId;
-    }
-
-    const pageNum = parseInt(page, 10) || 1;
-    const limitNum = parseInt(limit, 10) || 50;
-    const skip = (pageNum - 1) * limitNum;
-
-    const total = await Attendance.countDocuments(filter);
-    const records = await Attendance.find(filter)
-      .populate({
-        path: 'studentId',
-        select: 'studentId userId classId sectionId rollNumber profilePhoto',
-        populate: { path: 'userId', select: 'fullName email phone' }
-      })
-      .populate({
-        path: 'teacherId',
-        select: 'employeeId userId designation',
-        populate: { path: 'userId', select: 'fullName email' }
-      })
-      .populate('classId', 'className code')
-      .populate('sectionId', 'sectionName code')
-      .populate('subjectId', 'subjectName subjectCode')
-      .populate('academicYearId', 'yearName isCurrent')
-      .sort({ attendanceDate: -1, createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum);
-
-    return sendSuccess(res, 200, 'Attendance records retrieved successfully', {
-      count: records.length,
-      total,
-      page: pageNum,
-      pages: Math.ceil(total / limitNum) || 1,
-      attendance: records
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * @desc    Get attendance for specific student with summary stats
- * @route   GET /api/v1/attendance/student/:studentId
- * @access  Private
- */
-const getStudentAttendance = async (req, res, next) => {
-  try {
-    const { studentId } = req.params;
-    const { academicYearId, startDate, endDate, subjectId } = req.query;
-
-    if (!isValidObjectId(studentId)) {
-      return sendError(res, 400, 'Invalid studentId format.');
-    }
-
-    const studentProfile = await StudentProfile.findById(studentId);
-    if (!studentProfile) {
-      return sendError(res, 404, 'Student profile not found.');
-    }
-
-    const targetInstitutionId = req.user.role === 'super_admin' ? studentProfile.institutionId : req.user.institutionId;
-
-    if (studentProfile.institutionId.toString() !== targetInstitutionId.toString()) {
-      return sendError(res, 403, 'Cross-institution access denied.');
-    }
-
-    // Role Security Enforcement
-    if (req.user.role === 'student') {
-      const myProfile = await getStudentProfileForUser(req.user._id, targetInstitutionId);
-      if (!myProfile || myProfile._id.toString() !== studentId.toString()) {
-        return sendError(res, 403, 'Forbidden: You can only view your own attendance history.');
-      }
-    } else if (req.user.role === 'parent') {
-      const linkedIds = await getParentLinkedStudentProfileIds(req.user._id, targetInstitutionId);
-      if (!linkedIds.includes(studentId.toString())) {
-        return sendError(res, 403, 'Forbidden: You can only view attendance for linked children.');
-      }
-    } else if (req.user.role === 'teacher') {
-      // Verify teacher is assigned to at least one class/section where student is enrolled
-      const teacherProfile = await getTeacherProfileForUser(req.user._id, targetInstitutionId);
-      if (!teacherProfile) {
-        return sendError(res, 403, 'Teacher profile not found.');
-      }
-
-      const teacherAssignments = await TeacherSubjectAssignment.find({
-        institutionId: targetInstitutionId,
-        teacherId: teacherProfile._id,
-        isActive: true
-      });
-
-      const allowedScopes = teacherAssignments.map((a) => ({
-        classId: a.classId.toString(),
-        sectionId: a.sectionId.toString()
-      }));
-
-      // Check student enrollments
-      const enrollments = await StudentAcademicEnrollment.find({
-        institutionId: targetInstitutionId,
-        studentId
-      });
-
-      const isAuthorized = enrollments.some((e) =>
-        allowedScopes.some(
-          (scope) => scope.classId === e.classId.toString() && scope.sectionId === e.sectionId.toString()
-        )
-      );
-
-      if (!isAuthorized) {
-        return sendError(res, 403, 'Forbidden: You are not assigned to any class/section for this student.');
-      }
-    }
-
-    const filter = {
-      institutionId: targetInstitutionId,
-      studentId
-    };
-
-    if (academicYearId) filter.academicYearId = academicYearId;
-    if (subjectId) filter.subjectId = subjectId;
-
-    if (startDate || endDate) {
-      filter.attendanceDate = {};
-      if (startDate) filter.attendanceDate.$gte = normalizeDate(startDate);
-      if (endDate) filter.attendanceDate.$lte = normalizeDate(endDate);
-    }
-
-    const records = await Attendance.find(filter)
-      .populate('classId', 'className code')
-      .populate('sectionId', 'sectionName code')
-      .populate('subjectId', 'subjectName subjectCode')
-      .populate('academicYearId', 'yearName isCurrent')
-      .sort({ attendanceDate: -1 });
-
-    const summary = computeSummaryStats(records);
-
-    return sendSuccess(res, 200, 'Student attendance retrieved successfully', {
-      student: {
-        _id: studentProfile._id,
-        studentId: studentProfile.studentId,
-        userId: studentProfile.userId
-      },
-      summary,
-      count: records.length,
-      attendance: records
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * @desc    Get attendance for a specific class and section
- * @route   GET /api/v1/attendance/class/:classId/section/:sectionId
- * @access  Private (Super Admin, Institution Admin, Teacher)
- */
-const getClassSectionAttendance = async (req, res, next) => {
-  try {
-    const { classId, sectionId } = req.params;
-    const { academicYearId, subjectId, attendanceDate, startDate, endDate } = req.query;
-
-    if (!isValidObjectId(classId) || !isValidObjectId(sectionId)) {
-      return sendError(res, 400, 'Invalid classId or sectionId format.');
-    }
-
-    const targetInstitutionId = req.user.role === 'super_admin' ? req.query.institutionId || req.user.institutionId : req.user.institutionId;
-
-    // Role Security Enforcement
-    if (req.user.role === 'student') {
-      return sendError(res, 403, 'Forbidden: Students cannot access class-wide attendance.');
-    }
-    if (req.user.role === 'parent') {
-      return sendError(res, 403, 'Forbidden: Parents cannot access class-wide attendance.');
-    }
-
-    if (req.user.role === 'teacher') {
-      const teacherProfile = await getTeacherProfileForUser(req.user._id, targetInstitutionId);
-      if (!teacherProfile) {
-        return sendError(res, 403, 'Teacher profile not found.');
-      }
-
-      const assignFilter = {
-        institutionId: targetInstitutionId,
-        teacherId: teacherProfile._id,
-        classId,
-        sectionId,
-        isActive: true
-      };
-      if (academicYearId) assignFilter.academicYearId = academicYearId;
-      if (subjectId) assignFilter.subjectId = subjectId;
-
-      const assignment = await TeacherSubjectAssignment.findOne(assignFilter);
-      if (!assignment) {
-        return sendError(res, 403, 'Forbidden: You are not assigned to this class and section.');
-      }
-    }
-
-    const filter = {
-      institutionId: targetInstitutionId,
-      classId,
-      sectionId
-    };
-
-    if (academicYearId) filter.academicYearId = academicYearId;
-    if (subjectId) filter.subjectId = subjectId;
-
-    if (attendanceDate) {
-      filter.attendanceDate = normalizeDate(attendanceDate);
-    } else if (startDate || endDate) {
-      filter.attendanceDate = {};
-      if (startDate) filter.attendanceDate.$gte = normalizeDate(startDate);
-      if (endDate) filter.attendanceDate.$lte = normalizeDate(endDate);
+    } else if (studentId) {
+      filter.studentId = studentId;
     }
 
     const records = await Attendance.find(filter)
@@ -639,15 +360,71 @@ const getClassSectionAttendance = async (req, res, next) => {
         select: 'studentId userId rollNumber profilePhoto',
         populate: { path: 'userId', select: 'fullName email' }
       })
-      .populate('subjectId', 'subjectName subjectCode')
-      .populate('academicYearId', 'yearName isCurrent')
-      .sort({ attendanceDate: -1, studentId: 1 });
+      .populate('classId', 'name displayName')
+      .populate('sectionId', 'name roomNumber')
+      .populate('academicYearId', 'name status')
+      .populate('markedBy', 'fullName email role')
+      .sort({ date: -1, createdAt: -1 });
+
+    return sendSuccess(res, 200, 'Attendance records retrieved successfully', {
+      count: records.length,
+      attendance: records
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get Student Attendance History
+ * @route   GET /api/v1/attendance/student/:studentId
+ * @access  Private
+ */
+const getStudentAttendance = async (req, res, next) => {
+  try {
+    const { studentId } = req.params;
+    if (!isValidObjectId(studentId)) {
+      return sendError(res, 400, 'Invalid Student ID.');
+    }
+
+    const student = await StudentProfile.findById(studentId);
+    if (!student) {
+      return sendError(res, 404, 'Student profile not found.');
+    }
+
+    const targetInstitutionId = req.user.role === 'super_admin' ? student.institutionId : req.user.institutionId;
+
+    if (student.institutionId.toString() !== targetInstitutionId.toString()) {
+      return sendError(res, 403, 'Forbidden: Cannot access student attendance from another institution.');
+    }
+
+    // Role checks
+    if (req.user.role === 'student') {
+      const myProfile = await StudentProfile.findOne({ userId: req.user._id, institutionId: targetInstitutionId });
+      if (!myProfile || myProfile._id.toString() !== studentId.toString()) {
+        return sendError(res, 403, 'Forbidden: You can view only your own attendance history.');
+      }
+    } else if (req.user.role === 'parent') {
+      const linkedStudentIds = await getParentLinkedStudentProfileIds(req.user._id, targetInstitutionId);
+      if (!linkedStudentIds.includes(studentId.toString())) {
+        return sendError(res, 403, 'Forbidden: You can view attendance only for linked children.');
+      }
+    }
+
+    const filter = { studentId, institutionId: targetInstitutionId, isDeleted: { $ne: true } };
+    if (req.query.academicYearId) filter.academicYearId = req.query.academicYearId;
+    if (req.query.status) filter.status = req.query.status;
+
+    const records = await Attendance.find(filter)
+      .populate('classId', 'name displayName')
+      .populate('sectionId', 'name roomNumber')
+      .populate('academicYearId', 'name status')
+      .sort({ date: -1 });
 
     const summary = computeSummaryStats(records);
 
-    return sendSuccess(res, 200, 'Class section attendance retrieved successfully', {
-      classId,
-      sectionId,
+    return sendSuccess(res, 200, 'Student attendance history retrieved', {
+      student,
       summary,
       count: records.length,
       attendance: records
@@ -658,62 +435,235 @@ const getClassSectionAttendance = async (req, res, next) => {
 };
 
 /**
- * @desc    Get aggregate summary statistics across role scope
- * @route   GET /api/v1/attendance/summary
- * @access  Private
+ * @desc    Get Class / Section Attendance
+ * @route   GET /api/v1/attendance/class/:classId or /api/v1/attendance/class/:classId/section/:sectionId
+ * @access  Private (Super Admin, Institution Admin, Teacher)
  */
-const getAttendanceSummary = async (req, res, next) => {
+const getClassSectionAttendance = async (req, res, next) => {
   try {
-    const filter = {};
+    const { classId, sectionId } = req.params;
+    if (!isValidObjectId(classId)) {
+      return sendError(res, 400, 'Invalid Class ID.');
+    }
+
+    const filter = { classId, isDeleted: { $ne: true } };
+
     if (req.user.role === 'super_admin') {
       if (req.query.institutionId) filter.institutionId = req.query.institutionId;
     } else {
       filter.institutionId = req.user.institutionId;
     }
 
-    const { academicYearId, classId, sectionId, subjectId, startDate, endDate } = req.query;
-
-    if (academicYearId) filter.academicYearId = academicYearId;
-    if (classId) filter.classId = classId;
-    if (sectionId) filter.sectionId = sectionId;
-    if (subjectId) filter.subjectId = subjectId;
-
-    if (startDate || endDate) {
-      filter.attendanceDate = {};
-      if (startDate) filter.attendanceDate.$gte = normalizeDate(startDate);
-      if (endDate) filter.attendanceDate.$lte = normalizeDate(endDate);
+    if (sectionId && isValidObjectId(sectionId)) {
+      filter.sectionId = sectionId;
+    } else if (req.query.sectionId) {
+      filter.sectionId = req.query.sectionId;
     }
 
-    if (req.user.role === 'teacher') {
-      const teacherProfile = await getTeacherProfileForUser(req.user._id, filter.institutionId);
-      if (!teacherProfile) {
-        return sendError(res, 403, 'Teacher profile not found.');
+    if (req.query.academicYearId) filter.academicYearId = req.query.academicYearId;
+    if (req.query.date) filter.date = normalizeDate(req.query.date);
+
+    const records = await Attendance.find(filter)
+      .populate({
+        path: 'studentId',
+        select: 'studentId userId rollNumber',
+        populate: { path: 'userId', select: 'fullName email' }
+      })
+      .populate('sectionId', 'name roomNumber')
+      .populate('academicYearId', 'name')
+      .sort({ date: -1 });
+
+    return sendSuccess(res, 200, 'Class attendance records retrieved', {
+      count: records.length,
+      attendance: records
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get Daily Attendance for a Specific Date
+ * @route   GET /api/v1/attendance/date/:date
+ * @access  Private
+ */
+const getDailyAttendance = async (req, res, next) => {
+  try {
+    const { date } = req.params;
+    if (!date || isNaN(Date.parse(date))) {
+      return sendError(res, 400, 'Valid date parameter is required.');
+    }
+
+    const normDate = normalizeDate(date);
+    const filter = { date: normDate, isDeleted: { $ne: true } };
+
+    if (req.user.role === 'super_admin') {
+      if (req.query.institutionId) filter.institutionId = req.query.institutionId;
+    } else {
+      filter.institutionId = req.user.institutionId;
+    }
+
+    if (req.query.classId) filter.classId = req.query.classId;
+    if (req.query.sectionId) filter.sectionId = req.query.sectionId;
+
+    const records = await Attendance.find(filter)
+      .populate({
+        path: 'studentId',
+        select: 'studentId userId rollNumber',
+        populate: { path: 'userId', select: 'fullName email' }
+      })
+      .populate('classId', 'name displayName')
+      .populate('sectionId', 'name roomNumber')
+      .sort({ createdAt: -1 });
+
+    return sendSuccess(res, 200, `Daily attendance for ${normDate.toISOString().split('T')[0]} retrieved`, {
+      date: normDate,
+      count: records.length,
+      attendance: records
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Correct / Update Attendance by ID (Requires Correction Reason)
+ * @route   PATCH /api/v1/attendance/:id
+ * @access  Private (Super Admin, Institution Admin, Teacher)
+ */
+const updateAttendanceById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      return sendError(res, 400, 'Invalid Attendance ID.');
+    }
+
+    const record = await Attendance.findById(id);
+    if (!record || record.isDeleted) {
+      return sendError(res, 404, 'Attendance record not found.');
+    }
+
+    const targetInstitutionId = req.user.role === 'super_admin' ? record.institutionId : req.user.institutionId;
+    if (record.institutionId.toString() !== targetInstitutionId.toString()) {
+      return sendError(res, 403, 'Forbidden: Cannot edit attendance for another institution.');
+    }
+
+    // Require correction reason when changing finalized record
+    const val = validateAttendanceCorrectionInput(req.body);
+    if (!val.isValid) {
+      return sendError(res, 400, val.errors.join(' '));
+    }
+
+    const { status, remarks, correctionReason } = req.body;
+    const oldStatus = record.status;
+
+    if (status) record.status = status;
+    if (remarks !== undefined) record.remarks = remarks;
+    record.correctionReason = correctionReason.trim();
+    record.updatedBy = req.user._id;
+
+    await record.save();
+
+    logAuditEvent({
+      actor: req.user._id,
+      institution: targetInstitutionId,
+      action: 'ATTENDANCE_CORRECTED',
+      target: record._id,
+      details: {
+        studentId: record.studentId,
+        oldStatus,
+        newStatus: record.status,
+        correctionReason: record.correctionReason
       }
-      const assignFilter = { institutionId: filter.institutionId, teacherId: teacherProfile._id, isActive: true };
-      if (academicYearId) assignFilter.academicYearId = academicYearId;
-      const assignments = await TeacherSubjectAssignment.find(assignFilter);
-      if (!assignments || assignments.length === 0) {
-        return sendSuccess(res, 200, 'Attendance summary retrieved', {
-          summary: computeSummaryStats([])
-        });
+    });
+
+    return sendSuccess(res, 200, 'Attendance corrected successfully', {
+      attendance: record
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Soft Delete Attendance Record
+ * @route   DELETE /api/v1/attendance/:id
+ * @access  Private (Super Admin, Institution Admin)
+ */
+const deleteAttendanceById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      return sendError(res, 400, 'Invalid Attendance ID.');
+    }
+
+    const record = await Attendance.findById(id);
+    if (!record || record.isDeleted) {
+      return sendError(res, 404, 'Attendance record not found.');
+    }
+
+    const targetInstitutionId = req.user.role === 'super_admin' ? record.institutionId : req.user.institutionId;
+    if (record.institutionId.toString() !== targetInstitutionId.toString()) {
+      return sendError(res, 403, 'Forbidden: Cannot delete attendance for another institution.');
+    }
+
+    record.isDeleted = true;
+    record.updatedBy = req.user._id;
+    await record.save();
+
+    logAuditEvent({
+      actor: req.user._id,
+      institution: targetInstitutionId,
+      action: 'ATTENDANCE_DELETED',
+      target: record._id,
+      details: { studentId: record.studentId, date: record.date }
+    });
+
+    return sendSuccess(res, 200, 'Attendance record soft deleted successfully.');
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get Attendance Summary for a Student
+ * @route   GET /api/v1/attendance/summary/student/:studentId
+ * @access  Private
+ */
+const getStudentSummary = async (req, res, next) => {
+  try {
+    const { studentId } = req.params;
+    if (!isValidObjectId(studentId)) {
+      return sendError(res, 400, 'Invalid Student ID.');
+    }
+
+    const student = await StudentProfile.findById(studentId);
+    if (!student) {
+      return sendError(res, 404, 'Student profile not found.');
+    }
+
+    const targetInstitutionId = req.user.role === 'super_admin' ? student.institutionId : req.user.institutionId;
+
+    if (req.user.role === 'student') {
+      const myProfile = await StudentProfile.findOne({ userId: req.user._id, institutionId: targetInstitutionId });
+      if (!myProfile || myProfile._id.toString() !== studentId.toString()) {
+        return sendError(res, 403, 'Forbidden: You can view only your own attendance summary.');
       }
-      filter.$or = assignments.map((a) => ({ classId: a.classId, sectionId: a.sectionId }));
-    } else if (req.user.role === 'student') {
-      const studentProfile = await getStudentProfileForUser(req.user._id, filter.institutionId);
-      if (!studentProfile) return sendError(res, 403, 'Student profile not found.');
-      filter.studentId = studentProfile._id;
     } else if (req.user.role === 'parent') {
-      const linkedStudentIds = await getParentLinkedStudentProfileIds(req.user._id, filter.institutionId);
-      if (linkedStudentIds.length === 0) {
-        return sendSuccess(res, 200, 'Attendance summary retrieved', { summary: computeSummaryStats([]) });
+      const linkedStudentIds = await getParentLinkedStudentProfileIds(req.user._id, targetInstitutionId);
+      if (!linkedStudentIds.includes(studentId.toString())) {
+        return sendError(res, 403, 'Forbidden: You can view attendance summary only for linked children.');
       }
-      filter.studentId = { $in: linkedStudentIds };
     }
+
+    const filter = { studentId, institutionId: targetInstitutionId, isDeleted: { $ne: true } };
+    if (req.query.academicYearId) filter.academicYearId = req.query.academicYearId;
 
     const records = await Attendance.find(filter);
     const summary = computeSummaryStats(records);
 
-    return sendSuccess(res, 200, 'Attendance summary retrieved successfully', {
+    return sendSuccess(res, 200, 'Student attendance summary calculated', {
+      student,
       summary
     });
   } catch (error) {
@@ -722,75 +672,35 @@ const getAttendanceSummary = async (req, res, next) => {
 };
 
 /**
- * @desc    Update single attendance record by ID
- * @route   PATCH /api/v1/attendance/:id
+ * @desc    Get Class-Level Attendance Summary
+ * @route   GET /api/v1/attendance/summary/class/:classId
  * @access  Private (Super Admin, Institution Admin, Teacher)
  */
-const updateAttendanceById = async (req, res, next) => {
+const getClassSummary = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    if (!isValidObjectId(id)) {
-      return sendError(res, 400, 'Invalid attendance ID format.');
+    const { classId } = req.params;
+    if (!isValidObjectId(classId)) {
+      return sendError(res, 400, 'Invalid Class ID.');
     }
 
-    const attendance = await Attendance.findById(id);
-    if (!attendance) {
-      return sendError(res, 404, 'Attendance record not found.');
+    const filter = { classId, isDeleted: { $ne: true } };
+
+    if (req.user.role === 'super_admin') {
+      if (req.query.institutionId) filter.institutionId = req.query.institutionId;
+    } else {
+      filter.institutionId = req.user.institutionId;
     }
 
-    const targetInstitutionId = req.user.role === 'super_admin' ? attendance.institutionId : req.user.institutionId;
+    if (req.query.sectionId) filter.sectionId = req.query.sectionId;
+    if (req.query.academicYearId) filter.academicYearId = req.query.academicYearId;
 
-    if (attendance.institutionId.toString() !== targetInstitutionId.toString()) {
-      return sendError(res, 403, 'Cross-institution access denied.');
-    }
+    const records = await Attendance.find(filter);
+    const summary = computeSummaryStats(records);
 
-    // Role Security Check
-    if (req.user.role === 'teacher') {
-      const teacherProfile = await getTeacherProfileForUser(req.user._id, targetInstitutionId);
-      if (!teacherProfile) {
-        return sendError(res, 403, 'Teacher profile not found.');
-      }
-      const teacherCheck = await verifyTeacherAssignment(
-        teacherProfile._id,
-        targetInstitutionId,
-        attendance.academicYearId,
-        attendance.classId,
-        attendance.sectionId,
-        attendance.subjectId
-      );
-      if (!teacherCheck.valid) {
-        return sendError(res, 403, 'Forbidden: You are not assigned to edit attendance for this class/section.');
-      }
-    } else if (req.user.role === 'student' || req.user.role === 'parent') {
-      return sendError(res, 403, 'Forbidden: You do not have permission to modify attendance.');
-    }
-
-    const { status, remarks } = req.body;
-    if (status) {
-      const validStatuses = ['present', 'absent', 'late', 'leave'];
-      if (!validStatuses.includes(status)) {
-        return sendError(res, 400, `Status must be one of: ${validStatuses.join(', ')}.`);
-      }
-      attendance.status = status;
-    }
-
-    if (remarks !== undefined) {
-      attendance.remarks = remarks;
-    }
-
-    attendance.updatedBy = req.user._id;
-    await attendance.save();
-
-    logAuditEvent({
-      actor: req.user._id,
-      institution: targetInstitutionId,
-      action: 'ATTENDANCE_UPDATED',
-      target: attendance._id,
-      details: { status: attendance.status, remarks: attendance.remarks }
-    });
-
-    return sendSuccess(res, 200, 'Attendance record updated successfully', {
-      attendance
+    return sendSuccess(res, 200, 'Class attendance summary calculated', {
+      classId,
+      sectionId: req.query.sectionId || null,
+      summary
     });
   } catch (error) {
     next(error);
@@ -798,60 +708,57 @@ const updateAttendanceById = async (req, res, next) => {
 };
 
 /**
- * @desc    Delete single attendance record by ID
- * @route   DELETE /api/v1/attendance/:id
+ * @desc    Get Attendance Reports (Date Range / Monthly)
+ * @route   GET /api/v1/attendance/reports
  * @access  Private (Super Admin, Institution Admin, Teacher)
  */
-const deleteAttendanceById = async (req, res, next) => {
+const getAttendanceReports = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    if (!isValidObjectId(id)) {
-      return sendError(res, 400, 'Invalid attendance ID format.');
+    const filter = { isDeleted: { $ne: true } };
+
+    if (req.user.role === 'super_admin') {
+      if (req.query.institutionId) filter.institutionId = req.query.institutionId;
+    } else {
+      filter.institutionId = req.user.institutionId;
     }
 
-    const attendance = await Attendance.findById(id);
-    if (!attendance) {
-      return sendError(res, 404, 'Attendance record not found.');
-    }
+    const { academicYearId, classId, sectionId, startDate, endDate, month } = req.query;
 
-    const targetInstitutionId = req.user.role === 'super_admin' ? attendance.institutionId : req.user.institutionId;
+    if (academicYearId) filter.academicYearId = academicYearId;
+    if (classId) filter.classId = classId;
+    if (sectionId) filter.sectionId = sectionId;
 
-    if (attendance.institutionId.toString() !== targetInstitutionId.toString()) {
-      return sendError(res, 403, 'Cross-institution access denied.');
-    }
-
-    // Role Security Check
-    if (req.user.role === 'teacher') {
-      const teacherProfile = await getTeacherProfileForUser(req.user._id, targetInstitutionId);
-      if (!teacherProfile) {
-        return sendError(res, 403, 'Teacher profile not found.');
+    if (month) {
+      // Month parameter format: YYYY-MM
+      const [yr, m] = month.split('-').map(Number);
+      if (yr && m) {
+        const start = new Date(Date.UTC(yr, m - 1, 1));
+        const end = new Date(Date.UTC(yr, m, 0, 23, 59, 59));
+        filter.date = { $gte: start, $lte: end };
       }
-      const teacherCheck = await verifyTeacherAssignment(
-        teacherProfile._id,
-        targetInstitutionId,
-        attendance.academicYearId,
-        attendance.classId,
-        attendance.sectionId,
-        attendance.subjectId
-      );
-      if (!teacherCheck.valid) {
-        return sendError(res, 403, 'Forbidden: You are not authorized to delete attendance for this scope.');
-      }
-    } else if (req.user.role === 'student' || req.user.role === 'parent') {
-      return sendError(res, 403, 'Forbidden: You do not have permission to delete attendance.');
+    } else if (startDate || endDate) {
+      filter.date = {};
+      if (startDate) filter.date.$gte = normalizeDate(startDate);
+      if (endDate) filter.date.$lte = normalizeDate(endDate);
     }
 
-    await Attendance.findByIdAndDelete(id);
+    const records = await Attendance.find(filter)
+      .populate({
+        path: 'studentId',
+        select: 'studentId userId rollNumber',
+        populate: { path: 'userId', select: 'fullName email' }
+      })
+      .populate('classId', 'name displayName')
+      .populate('sectionId', 'name roomNumber')
+      .sort({ date: -1 });
 
-    logAuditEvent({
-      actor: req.user._id,
-      institution: targetInstitutionId,
-      action: 'ATTENDANCE_DELETED',
-      target: id,
-      details: { studentId: attendance.studentId, date: attendance.attendanceDate }
+    const summary = computeSummaryStats(records);
+
+    return sendSuccess(res, 200, 'Attendance report generated successfully', {
+      summary,
+      count: records.length,
+      attendance: records
     });
-
-    return sendSuccess(res, 200, 'Attendance record deleted successfully');
   } catch (error) {
     next(error);
   }
@@ -863,7 +770,10 @@ module.exports = {
   getAttendanceRecords,
   getStudentAttendance,
   getClassSectionAttendance,
-  getAttendanceSummary,
+  getDailyAttendance,
   updateAttendanceById,
-  deleteAttendanceById
+  deleteAttendanceById,
+  getStudentSummary,
+  getClassSummary,
+  getAttendanceReports
 };

@@ -20,7 +20,18 @@ const createFeeStructure = async (req, res, next) => {
       return sendError(res, 400, 'Valid Institution ID is required.');
     }
 
-    const { academicYearId, classId, name, description, components } = req.body;
+    const {
+      academicYearId,
+      classId,
+      sectionId,
+      name,
+      description,
+      components,
+      dueDate,
+      installmentAllowed,
+      installmentConfiguration,
+      scholarshipAllowed
+    } = req.body;
 
     // Check for duplicate structure name in institution + academic year
     const existing = await FeeStructure.findOne({
@@ -39,10 +50,15 @@ const createFeeStructure = async (req, res, next) => {
       institutionId: targetInstitutionId,
       academicYearId,
       classId: classId || null,
+      sectionId: sectionId || null,
       name: name.trim(),
       description: description || '',
       components,
       totalAmount,
+      dueDate: dueDate ? new Date(dueDate) : null,
+      installmentAllowed: installmentAllowed !== undefined ? Boolean(installmentAllowed) : true,
+      installmentConfiguration: Array.isArray(installmentConfiguration) ? installmentConfiguration : [],
+      scholarshipAllowed: scholarshipAllowed !== undefined ? Boolean(scholarshipAllowed) : true,
       createdBy: req.user._id
     });
 
@@ -76,10 +92,13 @@ const getFeeStructures = async (req, res, next) => {
       filter.institutionId = req.user.institutionId;
     }
 
-    const { academicYearId, classId, search } = req.query;
+    const { academicYearId, classId, sectionId, search, isActive } = req.query;
 
     if (academicYearId) filter.academicYearId = academicYearId;
     if (classId) filter.classId = classId;
+    if (sectionId) filter.sectionId = sectionId;
+    if (isActive !== undefined) filter.isActive = isActive === 'true';
+
     if (search) {
       filter.name = { $regex: search, $options: 'i' };
     }
@@ -87,6 +106,7 @@ const getFeeStructures = async (req, res, next) => {
     const structures = await FeeStructure.find(filter)
       .populate('academicYearId', 'name isCurrent status')
       .populate('classId', 'name className code')
+      .populate('sectionId', 'name sectionName code')
       .sort({ createdAt: -1 });
 
     return sendSuccess(res, 200, 'Fee structures retrieved successfully', {
@@ -112,7 +132,8 @@ const getFeeStructureById = async (req, res, next) => {
 
     const structure = await FeeStructure.findById(id)
       .populate('academicYearId', 'name isCurrent status')
-      .populate('classId', 'name className code');
+      .populate('classId', 'name className code')
+      .populate('sectionId', 'name sectionName code');
 
     if (!structure) {
       return sendError(res, 404, 'Fee structure not found.');
@@ -153,11 +174,28 @@ const updateFeeStructureById = async (req, res, next) => {
       return sendError(res, 403, 'Cross-institution access denied.');
     }
 
-    const { name, description, components, isActive } = req.body;
+    const {
+      name,
+      description,
+      components,
+      isActive,
+      dueDate,
+      installmentAllowed,
+      installmentConfiguration,
+      scholarshipAllowed,
+      sectionId
+    } = req.body;
 
     if (name) structure.name = name.trim();
     if (description !== undefined) structure.description = description;
     if (isActive !== undefined) structure.isActive = Boolean(isActive);
+    if (dueDate !== undefined) structure.dueDate = dueDate ? new Date(dueDate) : null;
+    if (installmentAllowed !== undefined) structure.installmentAllowed = Boolean(installmentAllowed);
+    if (installmentConfiguration && Array.isArray(installmentConfiguration)) {
+      structure.installmentConfiguration = installmentConfiguration;
+    }
+    if (scholarshipAllowed !== undefined) structure.scholarshipAllowed = Boolean(scholarshipAllowed);
+    if (sectionId !== undefined) structure.sectionId = sectionId || null;
 
     if (components && Array.isArray(components) && components.length > 0) {
       structure.components = components;
@@ -183,9 +221,95 @@ const updateFeeStructureById = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Activate Fee Structure
+ * @route   PATCH /api/v1/fee-structures/:id/activate
+ * @access  Private (Super Admin, Institution Admin)
+ */
+const activateFeeStructure = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      return sendError(res, 400, 'Invalid Fee Structure ID.');
+    }
+
+    const structure = await FeeStructure.findById(id);
+    if (!structure) {
+      return sendError(res, 404, 'Fee structure not found.');
+    }
+
+    const targetInstitutionId = req.user.role === 'super_admin' ? structure.institutionId : req.user.institutionId;
+    if (structure.institutionId.toString() !== targetInstitutionId.toString()) {
+      return sendError(res, 403, 'Cross-institution access denied.');
+    }
+
+    structure.isActive = true;
+    structure.updatedBy = req.user._id;
+    await structure.save();
+
+    logAuditEvent({
+      actor: req.user._id,
+      institution: targetInstitutionId,
+      action: 'FEE_STRUCTURE_ACTIVATED',
+      target: structure._id,
+      details: { name: structure.name }
+    });
+
+    return sendSuccess(res, 200, 'Fee structure activated successfully', {
+      feeStructure: structure
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Deactivate Fee Structure
+ * @route   PATCH /api/v1/fee-structures/:id/deactivate
+ * @access  Private (Super Admin, Institution Admin)
+ */
+const deactivateFeeStructure = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      return sendError(res, 400, 'Invalid Fee Structure ID.');
+    }
+
+    const structure = await FeeStructure.findById(id);
+    if (!structure) {
+      return sendError(res, 404, 'Fee structure not found.');
+    }
+
+    const targetInstitutionId = req.user.role === 'super_admin' ? structure.institutionId : req.user.institutionId;
+    if (structure.institutionId.toString() !== targetInstitutionId.toString()) {
+      return sendError(res, 403, 'Cross-institution access denied.');
+    }
+
+    structure.isActive = false;
+    structure.updatedBy = req.user._id;
+    await structure.save();
+
+    logAuditEvent({
+      actor: req.user._id,
+      institution: targetInstitutionId,
+      action: 'FEE_STRUCTURE_DEACTIVATED',
+      target: structure._id,
+      details: { name: structure.name }
+    });
+
+    return sendSuccess(res, 200, 'Fee structure deactivated successfully', {
+      feeStructure: structure
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createFeeStructure,
   getFeeStructures,
   getFeeStructureById,
-  updateFeeStructureById
+  updateFeeStructureById,
+  activateFeeStructure,
+  deactivateFeeStructure
 };

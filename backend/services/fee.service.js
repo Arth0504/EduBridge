@@ -35,6 +35,9 @@ const generatePaymentNumber = async (institutionId) => {
  * Recalculates student fee totals, pending amounts, and status.
  */
 const recalculateStudentFee = (studentFee) => {
+  const origAmount = Number(studentFee.originalAmount || studentFee.totalAmount || 0);
+  studentFee.originalAmount = origAmount;
+
   // Calculate total discount
   let totalDiscount = 0;
   if (Array.isArray(studentFee.discounts)) {
@@ -43,23 +46,27 @@ const recalculateStudentFee = (studentFee) => {
     });
   }
   studentFee.discountAmount = Number(totalDiscount.toFixed(2));
+  studentFee.concessionAmount = Number(totalDiscount.toFixed(2));
+
+  const total = origAmount;
+  studentFee.totalAmount = total;
+
+  const finalAmt = Math.max(0, total + Number(studentFee.lateFee || 0) - studentFee.discountAmount);
+  studentFee.finalAmount = Number(finalAmt.toFixed(2));
 
   // Calculate pending amount
-  const pending = calculatePendingAmount(
-    studentFee.totalAmount,
-    studentFee.discountAmount,
-    studentFee.lateFee,
-    studentFee.paidAmount
-  );
+  const pending = Math.max(0, Number((studentFee.finalAmount - Number(studentFee.paidAmount || 0)).toFixed(2)));
   studentFee.pendingAmount = pending;
 
   // Determine overall status
-  if (pending === 0 && (studentFee.paidAmount > 0 || studentFee.totalAmount === 0)) {
-    studentFee.status = 'paid';
-  } else if (studentFee.paidAmount > 0) {
-    studentFee.status = 'partially_paid';
-  } else {
-    studentFee.status = 'pending';
+  if (studentFee.status !== 'cancelled') {
+    if (pending === 0 && (studentFee.paidAmount > 0 || studentFee.finalAmount === 0)) {
+      studentFee.status = 'paid';
+    } else if (studentFee.paidAmount > 0) {
+      studentFee.status = 'partially_paid';
+    } else {
+      studentFee.status = 'pending';
+    }
   }
 
   // Update installment statuses & allocations if installments exist
@@ -67,7 +74,6 @@ const recalculateStudentFee = (studentFee) => {
     let remainingPaidPool = studentFee.paidAmount;
 
     studentFee.installments.forEach((inst) => {
-      // Effective installment target after proportional discount could be checked or simple sequential fill
       const instTarget = inst.amount;
       if (remainingPaidPool >= instTarget) {
         inst.paidAmount = instTarget;
@@ -86,6 +92,14 @@ const recalculateStudentFee = (studentFee) => {
         inst.status = isPastDue ? 'overdue' : 'pending';
       }
     });
+
+    // If any installment is overdue and student overall is not fully paid, mark status overdue
+    if (studentFee.status !== 'paid' && studentFee.status !== 'cancelled') {
+      const hasOverdueInstallment = studentFee.installments.some((i) => i.status === 'overdue');
+      if (hasOverdueInstallment) {
+        studentFee.status = 'overdue';
+      }
+    }
   }
 
   return studentFee;

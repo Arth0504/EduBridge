@@ -26,6 +26,16 @@ const feeComponentSchema = new mongoose.Schema(
   { _id: true }
 );
 
+const installmentConfigSchema = new mongoose.Schema(
+  {
+    installmentNumber: { type: Number, required: true },
+    name: { type: String, required: true, trim: true },
+    amount: { type: Number, required: true, min: 0 },
+    dueDate: { type: Date, required: true }
+  },
+  { _id: true }
+);
+
 const feeStructureSchema = new mongoose.Schema(
   {
     institutionId: {
@@ -41,6 +51,11 @@ const feeStructureSchema = new mongoose.Schema(
     classId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Class',
+      default: null
+    },
+    sectionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Section',
       default: null
     },
     name: {
@@ -67,6 +82,19 @@ const feeStructureSchema = new mongoose.Schema(
       required: [true, 'Total amount is required'],
       min: [0, 'Total amount cannot be negative']
     },
+    dueDate: {
+      type: Date,
+      default: null
+    },
+    installmentAllowed: {
+      type: Boolean,
+      default: true
+    },
+    installmentConfiguration: [installmentConfigSchema],
+    scholarshipAllowed: {
+      type: Boolean,
+      default: true
+    },
     isActive: {
       type: Boolean,
       default: true
@@ -87,3 +115,4 @@ const feeStructureSchema = new mongoose.Schema(
 feeStructureSchema.index({ institutionId: 1, academicYearId: 1, name: 1 }, { unique: true });
 
 module.exports = mongoose.model('FeeStructure', feeStructureSchema);
+

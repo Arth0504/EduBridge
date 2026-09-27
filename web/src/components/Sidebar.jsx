@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { GraduationCap, LayoutDashboard, Building2, Users, Shield, Settings, UserCheck, Bell, BookOpen, CreditCard } from 'lucide-react';
+import { GraduationCap, LayoutDashboard, Building2, Users, User, Shield, Settings, UserCheck, Bell, BookOpen, CreditCard } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Sidebar() {

@@ -3,8 +3,7 @@ const TeacherProfile = require('../models/TeacherProfile');
 const StudentProfile = require('../models/StudentProfile');
 const TeacherSubjectAssignment = require('../models/TeacherSubjectAssignment');
 const StudentAcademicEnrollment = require('../models/StudentAcademicEnrollment');
-const AcademicYear = require('../models/AcademicYear');
-const Subject = require('../models/Subject');
+const Section = require('../models/Section');
 const ParentChildLink = require('../models/ParentChildLink');
 
 /**
@@ -18,6 +17,7 @@ const normalizeDate = (dateInput) => {
 
 /**
  * Validates teacher assignment for institution, academic year, class, section, and optional subject.
+ * Teacher is authorized if they have a TeacherSubjectAssignment OR are assigned as classTeacherId on the Section.
  */
 const verifyTeacherAssignment = async (teacherProfileId, institutionId, academicYearId, classId, sectionId, subjectId = null) => {
   const teacher = await TeacherProfile.findById(teacherProfileId);
@@ -28,6 +28,13 @@ const verifyTeacherAssignment = async (teacherProfileId, institutionId, academic
     return { valid: false, code: 403, message: 'Teacher belongs to a different institution.' };
   }
 
+  // 1. Check Section classTeacherId
+  const section = await Section.findById(sectionId);
+  if (section && section.classTeacherId && section.classTeacherId.toString() === teacherProfileId.toString()) {
+    return { valid: true, teacher };
+  }
+
+  // 2. Check TeacherSubjectAssignment
   const query = {
     institutionId,
     academicYearId,
@@ -42,15 +49,15 @@ const verifyTeacherAssignment = async (teacherProfileId, institutionId, academic
   }
 
   const assignment = await TeacherSubjectAssignment.findOne(query);
-  if (!assignment) {
-    return {
-      valid: false,
-      code: 403,
-      message: 'Teacher is not assigned to this class/section/subject for the specified academic year.'
-    };
+  if (assignment) {
+    return { valid: true, teacher };
   }
 
-  return { valid: true, teacher };
+  return {
+    valid: false,
+    code: 403,
+    message: 'Teacher is not authorized/assigned for this class/section.'
+  };
 };
 
 /**
@@ -86,26 +93,30 @@ const verifyStudentEnrollment = async (studentProfileId, institutionId, academic
 };
 
 /**
- * Computes attendance summary metrics (working days, present, absent, late, leave, percentage).
+ * Computes attendance summary metrics (working days, present, absent, late, half_day, excused, leave, percentage).
  */
 const computeSummaryStats = (records) => {
   const totalWorkingDays = records.length;
   let present = 0;
   let absent = 0;
   let late = 0;
+  let halfDay = 0;
+  let excused = 0;
   let leave = 0;
 
   records.forEach((r) => {
     if (r.status === 'present') present += 1;
     else if (r.status === 'absent') absent += 1;
     else if (r.status === 'late') late += 1;
+    else if (r.status === 'half_day') halfDay += 1;
+    else if (r.status === 'excused') excused += 1;
     else if (r.status === 'leave') leave += 1;
   });
 
-  // Late and present count as attended, or standard percentage calculation: (present + late) / total
-  const attendedCount = present + late;
+  // Calculate percentage: (present + late + halfDay*0.5 + excused) / totalWorkingDays * 100
+  const attendedUnits = present + late + (halfDay * 0.5) + excused + leave;
   const attendancePercentage = totalWorkingDays > 0
-    ? Number(((attendedCount / totalWorkingDays) * 100).toFixed(2))
+    ? Number(((attendedUnits / totalWorkingDays) * 100).toFixed(2))
     : 0;
 
   return {
@@ -113,9 +124,11 @@ const computeSummaryStats = (records) => {
     present,
     absent,
     late,
+    halfDay,
+    excused,
     leave,
-    attendedCount,
-    attendancePercentage
+    attendedUnits,
+    attendancePercentage: Math.min(100, attendancePercentage)
   };
 };
 

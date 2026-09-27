@@ -32,7 +32,7 @@ const installmentSubSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'partially_paid', 'paid', 'overdue'],
+      enum: ['pending', 'partially_paid', 'paid', 'overdue', 'cancelled'],
       default: 'pending'
     }
   },
@@ -105,12 +105,32 @@ const studentFeeSchema = new mongoose.Schema(
       ref: 'FeeStructure',
       required: [true, 'Fee Structure ID is required']
     },
+    originalAmount: {
+      type: Number,
+      required: true,
+      min: 0
+    },
     totalAmount: {
       type: Number,
       required: [true, 'Total fee amount is required'],
       min: 0
     },
+    concessionAmount: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    scholarshipAmount: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
     discountAmount: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    finalAmount: {
       type: Number,
       default: 0,
       min: 0
@@ -130,9 +150,13 @@ const studentFeeSchema = new mongoose.Schema(
       required: true,
       min: 0
     },
+    dueDate: {
+      type: Date,
+      default: null
+    },
     status: {
       type: String,
-      enum: ['pending', 'partially_paid', 'paid', 'overdue'],
+      enum: ['pending', 'partially_paid', 'paid', 'overdue', 'cancelled'],
       default: 'pending'
     },
     installments: [installmentSubSchema],
@@ -160,3 +184,4 @@ studentFeeSchema.index({ institutionId: 1, academicYearId: 1, classId: 1, sectio
 studentFeeSchema.index({ studentId: 1, academicYearId: 1 });
 
 module.exports = mongoose.model('StudentFee', studentFeeSchema);
+

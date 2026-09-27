@@ -17,6 +17,10 @@ const validateFeeStructureInput = (data) => {
     errors.push('Provided classId is invalid.');
   }
 
+  if (data.sectionId && !isValidObjectId(data.sectionId)) {
+    errors.push('Provided sectionId is invalid.');
+  }
+
   if (!Array.isArray(data.components) || data.components.length === 0) {
     errors.push('components array with at least one component is required.');
   } else {
@@ -69,6 +73,27 @@ const validateStudentFeeInput = (data) => {
   };
 };
 
+const validateBulkAssignInput = (data) => {
+  const errors = [];
+
+  if (!data.academicYearId || !isValidObjectId(data.academicYearId)) {
+    errors.push('Valid academicYearId is required.');
+  }
+
+  if (!data.classId || !isValidObjectId(data.classId)) {
+    errors.push('Valid classId is required.');
+  }
+
+  if (!data.feeStructureId || !isValidObjectId(data.feeStructureId)) {
+    errors.push('Valid feeStructureId is required.');
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+};
+
 const validateCashPaymentInput = (data) => {
   const errors = [];
 
@@ -103,18 +128,62 @@ const validateOnlinePaymentInitiateInput = (data) => {
   };
 };
 
+const validateOnlinePaymentVerifyInput = (data) => {
+  const errors = [];
+
+  if (!data.paymentId || !isValidObjectId(data.paymentId)) {
+    errors.push('Valid paymentId is required.');
+  }
+
+  if (!data.orderId || typeof data.orderId !== 'string' || data.orderId.trim() === '') {
+    errors.push('Valid orderId is required.');
+  }
+
+  if (!data.transactionId || typeof data.transactionId !== 'string' || data.transactionId.trim() === '') {
+    errors.push('Valid transactionId is required.');
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+};
+
+const validateRefundInput = (data) => {
+  const errors = [];
+
+  if (!data.paymentId || !isValidObjectId(data.paymentId)) {
+    errors.push('Valid paymentId is required.');
+  }
+
+  if (!data.refundAmount || isNaN(Number(data.refundAmount)) || Number(data.refundAmount) <= 0) {
+    errors.push('Refund amount must be a positive number.');
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+};
+
 const validateDiscountInput = (data) => {
   const errors = [];
 
-  if (!data.discountType || !['fixed', 'percentage'].includes(data.discountType)) {
+  if (!data.discountType && !data.type) {
+    errors.push('type or discountType must be specified.');
+  }
+
+  const type = data.discountType || data.type;
+  if (!['fixed', 'percentage'].includes(type)) {
     errors.push('discountType must be either "fixed" or "percentage".');
   }
 
-  if (data.discountValue === undefined || isNaN(Number(data.discountValue)) || Number(data.discountValue) <= 0) {
-    errors.push('discountValue must be a positive number.');
+  const val = data.discountValue !== undefined ? data.discountValue : data.value;
+  if (val === undefined || isNaN(Number(val)) || Number(val) <= 0) {
+    errors.push('discountValue / value must be a positive number.');
   }
 
-  if (data.discountType === 'percentage' && Number(data.discountValue) > 100) {
+  if (type === 'percentage' && Number(val) > 100) {
     errors.push('Percentage discount cannot exceed 100%.');
   }
 
@@ -128,7 +197,10 @@ module.exports = {
   isValidObjectId,
   validateFeeStructureInput,
   validateStudentFeeInput,
+  validateBulkAssignInput,
   validateCashPaymentInput,
   validateOnlinePaymentInitiateInput,
+  validateOnlinePaymentVerifyInput,
+  validateRefundInput,
   validateDiscountInput
 };

@@ -15,45 +15,35 @@ EduBridge is an enterprise-ready, multi-institution education governance and lea
 
 ---
 
-## 💳 Phase 8: Fees, Fee Structure & Fee Collection Management
+## 📋 Phase 10: Attendance Management Module
 
-EduBridge Phase 8 introduces a comprehensive multi-tenant fee management and payment collection engine supporting historical year-scoped billing, cash collection counters, online payment gateway abstractions, term installments, discount concessions, receipt generation, and role-scoped financial reporting.
+EduBridge Phase 10 introduces a complete, production-ready Attendance Management module supporting daily student attendance, teacher bulk-marking workflows, student & parent history visibility, correction controls with required audit reasons, monthly/date-range reports, attendance percentage calculations, and multi-tenant isolation.
 
 ### 🔑 Key Features
-- **Historical Academic-Year Fee Data**: Fee structures, student balances, and payment logs remain permanently linked to their academic year. Modifying class assignments or future fee structures does not alter historical billing records.
-- **Cash Payment Workflow**: Institution Admins record counter cash payments. Updates `paidAmount`, calculates `pendingAmount = max(0, totalAmount + lateFee - discountAmount - paidAmount)`, updates installment status, and auto-generates unique receipt numbers (`REC-YYYY-XXXXXX`).
-- **Online Payment Provider Abstraction**: Payment model supports online gateway lifecycle (`pending`, `initiated`, `paid`, `failed`, `cancelled`, `refunded`). Initiates payment order abstraction (`orderId`, `paymentProvider`) ready for Razorpay/Stripe provider integration. Clients cannot fake successful payment completion without backend provider verification.
-- **Installment & Discount Management**: Supports custom installment schedules and administrative fee concessions (fixed amount or percentage) with approval tracking.
-- **Role-Based Access Control**:
-  - **Super Admin**: System-wide governance visibility across institutions.
-  - **Institution Admin**: Full fee structure creation, student assignment, cash collection, discounts, and receipts management.
-  - **Teacher**: Restricted from financial billing and fee records (returns HTTP 403 Forbidden).
-  - **Student**: View only their own fee statement, installment schedule, and receipts.
-  - **Parent**: View fee statements and receipts strictly for linked children via `ParentChildLink`.
-- **Web Dashboard (`FeeManagementPage.jsx`)**: Clean light Stitch-inspired interface with tabs for Fee Structures, Student Balances, Payment Transactions, Receipts, Concessions, and Summary Analytics Cards.
-- **Mobile Integration (`FeeScreen.jsx`)**: Native Expo mobile screen for Student/Parent fee statements, installment tracking, online payment order initiation, and receipt viewing.
-- **Audit Logging**: Logs fee structure creations, student assignments, discount concessions, cash collections, online order initiations, and receipt issuances.
+- **Daily & Subject Attendance**: Supports marking attendance by date for section students with statuses (`present`, `absent`, `late`, `half_day`, `excused`, `leave`). Prevents marking attendance for future dates.
+- **Teacher Section Authorization**: Teachers can mark attendance ONLY for sections/classes assigned to them via `TeacherSubjectAssignment` or `Section.classTeacherId`. Unassigned section marking attempts are blocked with HTTP 403 Forbidden.
+- **Bulk Marking Workflow**: Teachers load section student rosters, toggle individual statuses (defaulting to Present), and submit bulk attendance records in a single optimized payload.
+- **Attendance Correction & Finalization**: Updating finalized attendance records requires `correctionReason` and records `updatedBy` alongside audit log entries (`ATTENDANCE_CORRECTED`).
+- **Student & Parent Visibility**: Students have read-only access to their own attendance. Parents can view attendance histories and summary percentages strictly for linked children (`ParentChildLink`).
+- **Percentage Calculations**: Calculates total working days, present/absent/late/half-day counts, and exact attendance percentages `(present + late + half_day*0.5 + excused) / totalWorkingDays * 100`.
+- **Clean Light Web UI (`web/src/pages/AttendanceManagementPage.jsx`)**: Neutral education dashboard design with cards, rosters, filters, correction modals, and report exports.
+- **Mobile Integration (`mobile/src/screens/AttendanceScreen.jsx`)**: Mobile screen for Teachers to mark section attendance on-the-go and Students/Parents to view attendance status and monthly summaries without startup permission prompts.
 
 ---
 
-## 📡 Phase 8 API Endpoints
+## 📡 Phase 10 API Endpoints
 
-- `POST /api/v1/fee-structures` - Create fee structure with components (Super Admin, Inst Admin)
-- `GET /api/v1/fee-structures` - List fee structures with academic year / class filters
-- `GET /api/v1/fee-structures/:id` - Get fee structure by ID
-- `PATCH /api/v1/fee-structures/:id` - Update fee structure components or details
-- `POST /api/v1/student-fees` - Assign fee structure & installments to student
-- `GET /api/v1/student-fees` - Query student fee balances with role & tenant scope
-- `GET /api/v1/student-fees/:id` - Get student fee balance details
-- `PATCH /api/v1/student-fees/:id` - Update student fee (late fee / installments)
-- `POST /api/v1/fee-payments/cash` - Record counter cash payment & auto-generate receipt
-- `POST /api/v1/fee-payments/online/initiate` - Initiate online payment order abstraction
-- `GET /api/v1/fee-payments` - List payment transactions history
-- `GET /api/v1/fee-payments/:id` - Get payment transaction details by ID
-- `POST /api/v1/fee-discounts` - Apply discount / concession to student fee balance
-- `GET /api/v1/fee-receipts` - List fee receipts
-- `GET /api/v1/fee-receipts/:id` - Get fee receipt details for printing
-- `GET /api/v1/fee-reports/summary` - Aggregate financial collection metrics & summary dashboard
+- `POST /api/v1/attendance` - Mark single or bulk attendance (Admin, Teacher)
+- `POST /api/v1/attendance/bulk` - Bulk mark section attendance roster (Admin, Teacher)
+- `GET /api/v1/attendance` - Query attendance records with date/class/status filters
+- `GET /api/v1/attendance/student/:studentId` - Student attendance history (Role & Parent-Link scoped)
+- `GET /api/v1/attendance/class/:classId` & `/class/:classId/section/:sectionId` - Class/section attendance
+- `GET /api/v1/attendance/date/:date` - Daily attendance records for a specific date
+- `PATCH /api/v1/attendance/:id` - Correct attendance record (requires `correctionReason`)
+- `DELETE /api/v1/attendance/:id` - Soft delete attendance record (Admin)
+- `GET /api/v1/attendance/summary/student/:studentId` - Student attendance percentage & counts summary
+- `GET /api/v1/attendance/summary/class/:classId` - Class-level attendance summary
+- `GET /api/v1/attendance/reports` - Date-range / monthly attendance report
 
 ---
 
@@ -71,4 +61,6 @@ node scripts/testPhase5Notifications.js
 node scripts/testPhase6Academic.js
 node scripts/testPhase7Attendance.js
 node scripts/testPhase8Fees.js
+node scripts/testPhase9Finance.js
+node scripts/testPhase10Attendance.js
 ```

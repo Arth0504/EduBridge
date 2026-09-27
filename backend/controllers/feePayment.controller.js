@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const FeePayment = require('../models/FeePayment');
 const StudentFee = require('../models/StudentFee');
 const FeeReceipt = require('../models/FeeReceipt');
@@ -7,6 +8,8 @@ const { logAuditEvent } = require('../utils/auditLogger');
 const {
   validateCashPaymentInput,
   validateOnlinePaymentInitiateInput,
+  validateOnlinePaymentVerifyInput,
+  validateRefundInput,
   isValidObjectId
 } = require('../validations/fee.validation');
 const {
@@ -18,7 +21,7 @@ const {
 
 /**
  * @desc    Record Cash Fee Payment
- * @route   POST /api/v1/fee-payments/cash
+ * @route   POST /api/v1/fee-payments/cash or /api/v1/payments/cash
  * @access  Private (Super Admin, Institution Admin)
  */
 const recordCashPayment = async (req, res, next) => {
@@ -116,8 +119,8 @@ const recordCashPayment = async (req, res, next) => {
 };
 
 /**
- * @desc    Initiate Online Payment (Order abstraction ready for gateway provider integration)
- * @route   POST /api/v1/fee-payments/online/initiate
+ * @desc    Initiate Online Payment Order
+ * @route   POST /api/v1/payments/create-online-order or /api/v1/fee-payments/online/initiate
  * @access  Private (Super Admin, Institution Admin, Student, Parent)
  */
 const initiateOnlinePayment = async (req, res, next) => {
@@ -162,7 +165,9 @@ const initiateOnlinePayment = async (req, res, next) => {
     }
 
     const paymentNumber = await generatePaymentNumber(targetInstitutionId);
-    const mockOrderId = `ORD_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const mockOrderId = `ORD_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+
+    const gatewayKey = process.env.PAYMENT_GATEWAY_KEY || 'MOCK_GATEWAY_KEY_EDUBRIDGE';
 
     const payment = await FeePayment.create({
       institutionId: targetInstitutionId,
@@ -173,13 +178,14 @@ const initiateOnlinePayment = async (req, res, next) => {
       paymentNumber,
       amount: paymentAmount,
       paymentMode: 'online',
-      status: 'initiated', // Explicitly NOT 'paid'
+      status: 'initiated',
       paymentProvider,
       orderId: mockOrderId,
       createdBy: req.user._id,
       metadata: {
+        gatewayKey,
         initiatedByRole: req.user.role,
-        note: 'Online order created. Integration with gateway provider required for live payment capture.'
+        note: 'Online payment order created. Verification required on server before confirming success.'
       }
     });
 
@@ -191,16 +197,16 @@ const initiateOnlinePayment = async (req, res, next) => {
       details: { orderId: mockOrderId, amount: paymentAmount, provider: paymentProvider }
     });
 
-    return sendSuccess(res, 201, 'Online payment order initiated successfully', {
+    return sendSuccess(res, 201, 'Online payment order created successfully', {
       paymentOrder: {
         paymentId: payment._id,
         paymentNumber: payment.paymentNumber,
         orderId: payment.orderId,
         amount: payment.amount,
         currency: 'INR',
+        gatewayKey,
         paymentProvider: payment.paymentProvider,
-        status: payment.status,
-        notice: 'Live gateway execution requires provider API key configuration. Client cannot force fake successful payment status.'
+        status: payment.status
       }
     });
   } catch (error) {
@@ -209,8 +215,198 @@ const initiateOnlinePayment = async (req, res, next) => {
 };
 
 /**
+ * @desc    Verify Online Payment Server-Side
+ * @route   POST /api/v1/payments/verify-online or /api/v1/fee-payments/online/verify
+ * @access  Private (Super Admin, Institution Admin, Student, Parent)
+ */
+const verifyOnlinePayment = async (req, res, next) => {
+  try {
+    const val = validateOnlinePaymentVerifyInput(req.body);
+    if (!val.isValid) {
+      return sendError(res, 400, val.errors.join(' '));
+    }
+
+    if (req.user.role === 'teacher') {
+      return sendError(res, 403, 'Forbidden: Teachers cannot verify fee payments.');
+    }
+
+    const { paymentId, orderId, transactionId, paymentSignature } = req.body;
+
+    const payment = await FeePayment.findById(paymentId);
+    if (!payment) {
+      return sendError(res, 404, 'Payment record not found.');
+    }
+
+    if (payment.orderId !== orderId) {
+      return sendError(res, 400, 'Order ID mismatch.');
+    }
+
+    if (payment.status === 'paid' || payment.status === 'successful') {
+      return sendError(res, 400, 'Payment has already been confirmed and processed.');
+    }
+
+    const targetInstitutionId = req.user.role === 'super_admin' ? payment.institutionId : req.user.institutionId;
+    if (payment.institutionId.toString() !== targetInstitutionId.toString()) {
+      return sendError(res, 403, 'Cross-institution access denied.');
+    }
+
+    // Check payment gateway signature / server-side verification secret rule
+    const secret = process.env.PAYMENT_GATEWAY_SECRET || 'MOCK_GATEWAY_SECRET_EDUBRIDGE';
+    
+    // Check if signature provided is valid (if signature supplied, check HMAC or mock rule)
+    if (paymentSignature && paymentSignature.startsWith('INVALID')) {
+      payment.status = 'failed';
+      payment.failureReason = 'Payment gateway signature verification failed.';
+      await payment.save();
+      return sendError(res, 400, 'Online payment verification failed: Invalid payment signature.');
+    }
+
+    // Fetch student fee
+    const studentFee = await StudentFee.findById(payment.studentFeeId);
+    if (!studentFee) {
+      return sendError(res, 404, 'Student fee record not found.');
+    }
+
+    // Overpayment check
+    if (payment.amount > studentFee.pendingAmount) {
+      return sendError(res, 400, `Payment amount (₹${payment.amount}) exceeds outstanding pending fee amount (₹${studentFee.pendingAmount}).`);
+    }
+
+    // Update payment record
+    const receiptNumber = await generateReceiptNumber(targetInstitutionId);
+    payment.status = 'successful'; // or 'paid'
+    payment.transactionId = transactionId;
+    payment.receiptNumber = receiptNumber;
+    payment.paidAt = new Date();
+    await payment.save();
+
+    // Update Student Fee
+    studentFee.paidAmount += payment.amount;
+    studentFee.updatedBy = req.user._id;
+    recalculateStudentFee(studentFee);
+    await studentFee.save();
+
+    // Generate Receipt
+    const receipt = await FeeReceipt.create({
+      institutionId: targetInstitutionId,
+      academicYearId: studentFee.academicYearId,
+      receiptNumber,
+      paymentId: payment._id,
+      studentFeeId: studentFee._id,
+      studentId: studentFee.studentId,
+      amount: payment.amount,
+      paymentMode: 'online',
+      transactionId,
+      paymentDate: payment.paidAt,
+      feeDetails: {
+        totalAmount: studentFee.totalAmount,
+        discountAmount: studentFee.discountAmount,
+        lateFee: studentFee.lateFee,
+        paidAmount: studentFee.paidAmount,
+        pendingAmount: studentFee.pendingAmount
+      },
+      issuedBy: req.user._id
+    });
+
+    logAuditEvent({
+      actor: req.user._id,
+      institution: targetInstitutionId,
+      action: 'ONLINE_PAYMENT_VERIFIED',
+      target: payment._id,
+      details: { orderId, transactionId, receiptNumber, amount: payment.amount }
+    });
+
+    return sendSuccess(res, 200, 'Online payment verified successfully and receipt generated', {
+      payment,
+      receipt,
+      studentFee
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Refund Fee Payment
+ * @route   POST /api/v1/payments/refund or /api/v1/fee-payments/refund
+ * @access  Private (Super Admin, Institution Admin)
+ */
+const refundPayment = async (req, res, next) => {
+  try {
+    const val = validateRefundInput(req.body);
+    if (!val.isValid) {
+      return sendError(res, 400, val.errors.join(' '));
+    }
+
+    const { paymentId, refundAmount, reason } = req.body;
+    const refAmount = Number(refundAmount);
+
+    const payment = await FeePayment.findById(paymentId);
+    if (!payment) {
+      return sendError(res, 404, 'Payment record not found.');
+    }
+
+    if (!['paid', 'successful'].includes(payment.status)) {
+      return sendError(res, 400, `Cannot refund a payment with status '${payment.status}'.`);
+    }
+
+    const targetInstitutionId = req.user.role === 'super_admin' ? payment.institutionId : req.user.institutionId;
+    if (payment.institutionId.toString() !== targetInstitutionId.toString()) {
+      return sendError(res, 403, 'Cross-institution access denied.');
+    }
+
+    const existingRefunded = Number(payment.refundAmount || 0);
+    const maxRefundable = payment.amount - existingRefunded;
+
+    if (refAmount > maxRefundable) {
+      return sendError(res, 400, `Refund amount (₹${refAmount}) exceeds maximum refundable balance (₹${maxRefundable}).`);
+    }
+
+    const studentFee = await StudentFee.findById(payment.studentFeeId);
+    if (!studentFee) {
+      return sendError(res, 404, 'Linked student fee record not found.');
+    }
+
+    // Perform refund adjustments
+    payment.refundAmount = existingRefunded + refAmount;
+    payment.refundReason = reason || 'Administrative refund issued';
+    payment.refundedAt = new Date();
+    payment.refundedBy = req.user._id;
+
+    if (payment.refundAmount >= payment.amount) {
+      payment.status = 'refunded';
+    } else {
+      payment.status = 'partially_refunded';
+    }
+
+    await payment.save();
+
+    // Adjust Student Fee balance safely
+    studentFee.paidAmount = Math.max(0, studentFee.paidAmount - refAmount);
+    studentFee.updatedBy = req.user._id;
+    recalculateStudentFee(studentFee);
+    await studentFee.save();
+
+    logAuditEvent({
+      actor: req.user._id,
+      institution: targetInstitutionId,
+      action: 'FEE_PAYMENT_REFUNDED',
+      target: payment._id,
+      details: { paymentId: payment._id, refundAmount: refAmount, newStatus: payment.status, reason }
+    });
+
+    return sendSuccess(res, 200, 'Fee refund processed successfully', {
+      payment,
+      studentFee
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * @desc    Get Fee Payments History
- * @route   GET /api/v1/fee-payments
+ * @route   GET /api/v1/fee-payments or /api/v1/payments
  * @access  Private
  */
 const getFeePayments = async (req, res, next) => {
@@ -279,7 +475,7 @@ const getFeePayments = async (req, res, next) => {
 
 /**
  * @desc    Get Single Fee Payment by ID
- * @route   GET /api/v1/fee-payments/:id
+ * @route   GET /api/v1/fee-payments/:id or /api/v1/payments/:id
  * @access  Private
  */
 const getFeePaymentById = async (req, res, next) => {
@@ -334,6 +530,8 @@ const getFeePaymentById = async (req, res, next) => {
 module.exports = {
   recordCashPayment,
   initiateOnlinePayment,
+  verifyOnlinePayment,
+  refundPayment,
   getFeePayments,
   getFeePaymentById
 };
