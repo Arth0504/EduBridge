@@ -32,6 +32,13 @@ export default function Sidebar() {
         </li>
 
         <li className="nav-item">
+          <NavLink to="/attendance" className={({ isActive }) => (isActive ? 'active' : '')}>
+            <UserCheck size={18} />
+            <span>Attendance Hub</span>
+          </NavLink>
+        </li>
+
+        <li className="nav-item">
           <NavLink to="/notifications" className={({ isActive }) => (isActive ? 'active' : '')}>
             <Bell size={18} />
             <span>Announcements</span>

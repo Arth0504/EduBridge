@@ -9,6 +9,7 @@ import PermissionDemoScreen from './src/screens/PermissionDemoScreen';
 import NotificationScreen from './src/screens/NotificationScreen';
 import NotificationDetailScreen from './src/screens/NotificationDetailScreen';
 import AcademicScreen from './src/screens/AcademicScreen';
+import AttendanceScreen from './src/screens/AttendanceScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -30,6 +31,7 @@ export default function App() {
           <Stack.Screen name="Notifications" component={NotificationScreen} />
           <Stack.Screen name="NotificationDetail" component={NotificationDetailScreen} />
           <Stack.Screen name="Academic" component={AcademicScreen} />
+          <Stack.Screen name="Attendance" component={AttendanceScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </AuthProvider>

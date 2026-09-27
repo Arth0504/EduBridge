@@ -24,6 +24,7 @@ const subjectRoutes = require('./routes/subject.routes');
 const teacherAssignmentRoutes = require('./routes/teacherAssignment.routes');
 const studentEnrollmentRoutes = require('./routes/studentEnrollment.routes');
 const academicSummaryRoutes = require('./routes/academicSummary.routes');
+const attendanceRoutes = require('./routes/attendance.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -56,6 +57,7 @@ app.use('/api/v1/subjects', subjectRoutes);
 app.use('/api/v1/teacher-subject-assignments', teacherAssignmentRoutes);
 app.use('/api/v1/student-enrollments', studentEnrollmentRoutes);
 app.use('/api/v1/academic', academicSummaryRoutes);
+app.use('/api/v1/attendance', attendanceRoutes);
 
 
 

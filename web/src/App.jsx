@@ -17,6 +17,7 @@ import ParentsPage from './pages/ParentsPage';
 import MyInstitutionPage from './pages/MyInstitutionPage';
 import NotificationsPage from './pages/NotificationsPage';
 import AcademicManagementPage from './pages/AcademicManagementPage';
+import AttendanceManagementPage from './pages/AttendanceManagementPage';
 
 function MainLayout() {
   return (
@@ -31,6 +32,14 @@ function MainLayout() {
             element={
               <ProtectedRoute>
                 <AcademicManagementPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance"
+            element={
+              <ProtectedRoute>
+                <AttendanceManagementPage />
               </ProtectedRoute>
             }
           />
