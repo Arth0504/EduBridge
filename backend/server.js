@@ -26,6 +26,13 @@ const studentEnrollmentRoutes = require('./routes/studentEnrollment.routes');
 const academicSummaryRoutes = require('./routes/academicSummary.routes');
 const attendanceRoutes = require('./routes/attendance.routes');
 const feeRoutes = require('./routes/fee.routes');
+const examinationRoutes = require('./routes/examination.routes');
+const examScheduleRoutes = require('./routes/examSchedule.routes');
+const examMarkRoutes = require('./routes/examMark.routes');
+const resultRoutes = require('./routes/result.routes');
+const timetableRoutes = require('./routes/timetable.routes');
+const timeSlotRoutes = require('./routes/timeSlot.routes');
+const roomRoutes = require('./routes/room.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -60,6 +67,14 @@ app.use('/api/v1/student-enrollments', studentEnrollmentRoutes);
 app.use('/api/v1/academic', academicSummaryRoutes);
 app.use('/api/v1/attendance', attendanceRoutes);
 app.use('/api/v1', feeRoutes);
+app.use('/api/v1/examinations', examinationRoutes);
+app.use('/api/v1/exam-schedules', examScheduleRoutes);
+app.use('/api/v1/exam-marks', examMarkRoutes);
+app.use('/api/v1/results', resultRoutes);
+app.use('/api/v1/timetables', timetableRoutes);
+app.use('/api/v1/time-slots', timeSlotRoutes);
+app.use('/api/v1/rooms', roomRoutes);
+
 
 
 

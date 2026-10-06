@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { GraduationCap, LayoutDashboard, Building2, Users, User, Shield, Settings, UserCheck, Bell, BookOpen, CreditCard } from 'lucide-react';
+import { GraduationCap, LayoutDashboard, Building2, Users, User, Shield, Settings, UserCheck, Bell, BookOpen, CreditCard, FileText, Calendar } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Sidebar() {
@@ -46,11 +46,26 @@ export default function Sidebar() {
         </li>
 
         <li className="nav-item">
+          <NavLink to="/examinations" className={({ isActive }) => (isActive ? 'active' : '')}>
+            <FileText size={18} />
+            <span>Examinations</span>
+          </NavLink>
+        </li>
+
+        <li className="nav-item">
+          <NavLink to="/timetable" className={({ isActive }) => (isActive ? 'active' : '')}>
+            <Calendar size={18} />
+            <span>Timetable & Schedule</span>
+          </NavLink>
+        </li>
+
+        <li className="nav-item">
           <NavLink to="/notifications" className={({ isActive }) => (isActive ? 'active' : '')}>
             <Bell size={18} />
             <span>Announcements</span>
           </NavLink>
         </li>
+
 
         {/* Super Admin specific navigation */}
         {role === 'super_admin' && (

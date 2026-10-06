@@ -19,6 +19,8 @@ import NotificationsPage from './pages/NotificationsPage';
 import AcademicManagementPage from './pages/AcademicManagementPage';
 import AttendanceManagementPage from './pages/AttendanceManagementPage';
 import FeeManagementPage from './pages/FeeManagementPage';
+import ExamManagementPage from './pages/ExamManagementPage';
+import TimetableManagementPage from './pages/TimetableManagementPage';
 
 function MainLayout() {
   return (
@@ -52,6 +54,23 @@ function MainLayout() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/examinations"
+            element={
+              <ProtectedRoute>
+                <ExamManagementPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/timetable"
+            element={
+              <ProtectedRoute>
+                <TimetableManagementPage />
+              </ProtectedRoute>
+            }
+          />
+
           <Route
             path="/notifications"
             element={

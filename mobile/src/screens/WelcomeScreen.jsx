@@ -122,12 +122,21 @@ export default function WelcomeScreen({ navigation }) {
               </TouchableOpacity>
 
               <TouchableOpacity
+                style={[styles.primaryButton, { backgroundColor: '#7c3aed', marginTop: 10 }]}
+                onPress={() => navigation.navigate('Timetable')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.primaryButtonText}>📅 Timetable & Schedule</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 style={styles.secondaryButton}
                 onPress={() => navigation.navigate('Notifications')}
                 activeOpacity={0.8}
               >
                 <Text style={styles.secondaryButtonText}>🔔 View Notifications Feed</Text>
               </TouchableOpacity>
+
             </>
           )}
 

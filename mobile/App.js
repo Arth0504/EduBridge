@@ -11,6 +11,7 @@ import NotificationDetailScreen from './src/screens/NotificationDetailScreen';
 import AcademicScreen from './src/screens/AcademicScreen';
 import AttendanceScreen from './src/screens/AttendanceScreen';
 import FeeScreen from './src/screens/FeeScreen';
+import TimetableScreen from './src/screens/TimetableScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -34,8 +35,10 @@ export default function App() {
           <Stack.Screen name="Academic" component={AcademicScreen} />
           <Stack.Screen name="Attendance" component={AttendanceScreen} />
           <Stack.Screen name="Fee" component={FeeScreen} />
+          <Stack.Screen name="Timetable" component={TimetableScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </AuthProvider>
   );
 }
+
